@@ -22,6 +22,9 @@
 #include "text_font.h"
 #include "window_manager.h"
 #include "word_wrap.h"
+#ifdef __3DS__
+#include "platform/ctr/ctr_input.h"
+#endif
 
 namespace fallout {
 
@@ -1115,7 +1118,15 @@ int showSaveFileDialog(char* title, char** fileList, char* dest, int fileListLen
 
     windowRefresh(win);
 
+#ifdef __3DS__
+    // Keep the existing file list and Done/Cancel buttons usable. Tap the
+    // filename to reopen the native keyboard after selecting an existing file.
+    buttonCreate(win, 57, 190, 150, cursorHeight, -1, -1, -1, 509,
+        nullptr, nullptr, nullptr, 0);
+    bool editFilename = true;
+#else
     beginTextInput();
+#endif
 
     int blinkingCounter = 3;
     bool blink = false;
@@ -1135,6 +1146,27 @@ int showSaveFileDialog(char* title, char** fileList, char* dest, int fileListLen
 
         convertMouseWheelToArrowKey(&keyCode);
 
+#ifdef __3DS__
+        if (editFilename || keyCode == 509) {
+            editFilename = false;
+            char edited[9] = {};
+            size_t initialLength = std::min(fileNameCopyLength, sizeof(edited) - 1);
+            memcpy(edited, fileNameCopy, initialLength);
+            if (ctr_input_edit_text("Filename (8 characters)", edited, 8, false, true)) {
+                bufferFill(fileNameBufferPtr, fontGetStringWidth(fileNameCopy), cursorHeight, backgroundWidth, 100);
+                fileNameCopyLength = strlen(edited);
+                memcpy(fileNameCopy, edited, fileNameCopyLength);
+                fileNameCopy[fileNameCopyLength] = ' ';
+                fileNameCopy[fileNameCopyLength + 1] = '\0';
+                fontDrawText(fileNameBufferPtr, fileNameCopy, backgroundWidth, backgroundWidth, _colorTable[992]);
+                doubleClickSelectedFileIndex = -2;
+                windowRefresh(win);
+            }
+            // Do not treat keyboard confirmation as saving the file itself.
+            keyCode = -1;
+            tick = getTicks();
+        }
+#endif
         if (keyCode == 500) {
             rc = 0;
         } else if (keyCode == KEY_RETURN) {
@@ -1379,7 +1411,9 @@ int showSaveFileDialog(char* title, char** fileList, char* dest, int fileListLen
         sharedFpsLimiter.throttle();
     }
 
+#ifndef __3DS__
     endTextInput();
+#endif
 
     if (rc == 0) {
         if (fileNameCopyLength != 0) {

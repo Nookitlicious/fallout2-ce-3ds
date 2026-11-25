@@ -2,6 +2,7 @@
 #include <stdlib.h>
 
 #include "ctr_rectmap.h"
+#include "ctr_main_menu_layout.h"
 #include "ctr_input.h"
 #include "ctr_gfx.h"
 
@@ -256,7 +257,10 @@ void ctr_rectmap_init()
     addRectMap(DISPLAY_FIELD,             0,   0,   0, 400, 240,   0,   0, 400, 240);
     addRectMap(DISPLAY_MOVIE,             0, 0,  80, 640, 320,  0,   20, 400, 200);
     addRectMap(DISPLAY_MOVIE_SUB,         0, 105, 401, 430,  80,   0,  60, 320, 120);
-    addRectMap(DISPLAY_MAIN,              0, 400,  25, 215, 230,  43,   0, 234, 240);
+    // Original left-hand metal plates, including all of the EXIT row.
+    addRectMap(DISPLAY_MAIN, 0, ctr_menu::BottomSrcX, ctr_menu::BottomSrcY,
+        ctr_menu::BottomSrcW, ctr_menu::BottomSrcH, ctr_menu::BottomDstX,
+        ctr_menu::BottomDstY, ctr_menu::BottomDstW, ctr_menu::BottomDstH);
 
     addRectMap(DISPLAY_GUI,               0,   5, 380, 200, 100,   0, 100, 200, 100); // monitor
     addRectMap(DISPLAY_GUI,               1, 520, 380, 140, 100, 200, 100, 140, 100); // skill pip
@@ -270,9 +274,9 @@ void ctr_rectmap_init()
     addRectMap(DISPLAY_PAUSE,             0, 240,  72, 160, 215,  71,   0, 178, 240);
 
     addRectMap(DISPLAY_DIALOG_TOP,        0,  80,   0, 480, 290,   0,   0, 397, 240);
-    addRectMap(DISPLAY_DIALOG_TOP,        1, 130, 230, 390,  60,  10,   0, 380,  60); // dialog
+    addRectMap(DISPLAY_DIALOG_TOP,        1, 130, 225, 390,  65,  10,   0, 380,  60); // full reply window
 
-    addRectMap(DISPLAY_DIALOG,            0, 145, 320, 345, 160,   0,  80, 320, 160); // bottom dialog
+    addRectMap(DISPLAY_DIALOG,            0, 120, 320, 407, 160,   0,  80, 320, 160); // full options window + margins
     addRectMap(DISPLAY_DIALOG,            1,   5, 440,  70,  37,  45,  10,  70,  37); // bottom review
     addRectMap(DISPLAY_DIALOG,            2, 575, 324,  50,  28, 135,  15,  50,  28); // bottom barter
     addRectMap(DISPLAY_DIALOG,            3, 575, 399,  50,  28, 210,  15,  50,  28); // bottom about

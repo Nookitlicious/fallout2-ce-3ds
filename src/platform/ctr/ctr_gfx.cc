@@ -1,8 +1,16 @@
 #include <malloc.h>
+#include <stdio.h>
+#include <initializer_list>
+#include <string.h>
+
+#include "ctr_render_rows.h"
+#include "ctr_scene_gate.h"
+#include "o3ds_v9_options.h"
 
 #include "ctr_input.h"
 #include "ctr_gfx.h"
 #include "ctr_rectmap.h"
+#include "ctr_main_menu_layout.h"
 //#include "ctr_sys.h"
 
 #include "vshader_shbin.h"
@@ -31,6 +39,42 @@ static const uint16_t renderTextureWidth = 1024;
 static const uint16_t renderTextureHeight = 512;
 static const uint32_t renderTextureStride = renderTextureWidth * 3;
 static const uint32_t renderTextureByteCount = renderTextureStride * renderTextureHeight;
+
+static CtrRenderRows renderRows;
+static bool forceFullUpload;
+static bool profileEnabled;
+static uint32_t profileStart;
+static uint32_t profileFrames;
+static uint32_t profileUploads;
+static uint32_t profileDrawCalls;
+static uint32_t lastSceneDraw;
+static bool sceneValid;
+static SceneSnapshot lastScene;
+// Only gameplay layouts use this fast path. Other layouts, movies and
+// debug overlays always retain the V8 draw behavior. Compare geometry
+// exactly, including the cropped/zoomed field and screen swapping.
+static bool captureScene(SceneSnapshot& scene)
+{
+    if (ctr_rectMap.active != DISPLAY_GUI && ctr_rectMap.active != DISPLAY_FIELD) return false;
+    if (ctr_gfx.overlayEnable || ctr_gfx.overlayEnableExtra || !rectMaps || !numRectsInMap) return false;
+    if (numRectsInMap[DISPLAY_FIELD] != 1 || numRectsInMap[DISPLAY_GUI] != 3 || numRectsInMap[DISPLAY_GUI_INDICATOR] != 4) return false;
+    scene.display = ctr_rectMap.active; scene.mode = ctr_input.mode;
+    scene.indicators = getIndicatorSlotNum(); scene.wide = ctr_gfx.isWide;
+    int n = 0;
+    for (int group : {DISPLAY_FIELD, DISPLAY_GUI, DISPLAY_GUI_INDICATOR}) {
+        if (!rectMaps[group]) return false;
+        for (int i = 0; i < numRectsInMap[group]; ++i) {
+            if (!rectMaps[group][i]) return false;
+            scene.rects[n++] = *rectMaps[group][i];
+        }
+    }
+    return true;
+}
+static uint32_t profileRows;
+static uint32_t profilePossibleRows;
+static uint32_t profileConvertMs;
+static uint32_t profileUploadMs;
+static uint32_t profileDrawMs;
 
 static C3D_Tex render_tex;
 static C3D_Tex static_tex;
@@ -221,6 +265,13 @@ void drawRects()
     switch (ctr_rectMap.active)
     {
         case DISPLAY_SPLASH:
+            break;
+
+        case DISPLAY_MAIN:
+            // Same framebuffer, but never sample the interactive plates.
+            drawRect(ctr_menu::TopSrcX, ctr_menu::TopSrcY,
+                ctr_menu::TopSrcW, ctr_menu::TopSrcH, ctr_menu::TopDstX,
+                ctr_menu::TopDstY, ctr_menu::TopDstW, ctr_menu::TopDstH);
             break;
 
         case DISPLAY_MOVIE:
@@ -469,72 +520,109 @@ void drawFrameRect()
     C3D_TexBind(0, &render_tex);
 }
 
+void ctr_gfx_invalidate()
+{
+    renderRows.invalidate();
+    sceneValid = false;
+}
+
+void ctr_gfx_copy_rect(const uint8_t* src, int srcPitch, uint8_t* dst, int dstPitch,
+    int width, int height, int destY)
+{
+    renderRows.copyRect(src, srcPitch, dst, dstPitch, width, height, destY, forceFullUpload);
+}
+
 void ctr_gfx_draw(SDL_Surface* gSdlSurface)
 {
-    C3D_BindProgram(&program);
-
-    uLoc_projection = shaderInstanceGetUniformLocation(program.vertexShader, "projection");
-    C3D_AttrInfo* attrInfo = C3D_GetAttrInfo();
-    AttrInfo_Init(attrInfo);
-    AttrInfo_AddLoader(attrInfo, 0, GPU_FLOAT, 3); // v0=position
-    AttrInfo_AddLoader(attrInfo, 1, GPU_FLOAT, 2); // v1=texcoord
-
-    Mtx_OrthoTilt(&topProjection, 0, ctr_gfx.isWide ? GSP_SCREEN_HEIGHT_TOP_2X : GSP_SCREEN_HEIGHT_TOP, 0, GSP_SCREEN_WIDTH, 0.1f, 1.f, true);
-    Mtx_OrthoTilt(&bottomProjection, 0, GSP_SCREEN_HEIGHT_BOTTOM, 0, GSP_SCREEN_WIDTH, 0.1f, 1.f, true);
-
-    Uint8* dst = (Uint8*)renderTextureData;
-    Uint8* src = (Uint8*)gSdlSurface->pixels;
-    SDL_Color* palette = gSdlSurface->format->palette->colors;
-
-    int surfaceWidth = gSdlSurface->w;
-    int surfaceHeight = gSdlSurface->h;
-
-    int chunk = 16;
-
-    for (int y = 0; y < surfaceHeight; y++) {
-        Uint8* rowDst = dst + y * renderTextureStride;
-        Uint8* rowSrc = src + y * surfaceWidth;
-
-        int x = 0;
-
-        // chunks of 16 pixels
-        for (; x <= surfaceWidth - chunk; x += chunk) {
-            for (int i = 0; i < chunk; i++) {
-                Uint32 colorIndex = rowSrc[x + i];
-                SDL_Color pixelColor = palette[colorIndex];
-
-                rowDst[(x + i) * 3 + 0] = pixelColor.b;
-                rowDst[(x + i) * 3 + 1] = pixelColor.g;
-                rowDst[(x + i) * 3 + 2] = pixelColor.r;
-            }
-        }
-
-        // remaining pixels
-        for (; x < surfaceWidth; x++) {
-            Uint32 colorIndex = rowSrc[x];
-            SDL_Color pixelColor = palette[colorIndex];
-
-            rowDst[x * 3 + 0] = pixelColor.b;
-            rowDst[x * 3 + 1] = pixelColor.g;
-            rowDst[x * 3 + 2] = pixelColor.r;
-        }
+    if (gSdlSurface == nullptr || gSdlSurface->format == nullptr
+        || gSdlSurface->format->palette == nullptr || gSdlSurface->pixels == nullptr
+        || gSdlSurface->format->palette->colors == nullptr
+        || gSdlSurface->format->palette->ncolors < 256
+        || renderTextureData == nullptr || gSdlSurface->format->BytesPerPixel != 1
+        || gSdlSurface->w <= 0 || gSdlSurface->h <= 0
+        || gSdlSurface->w > renderTextureWidth || gSdlSurface->h > renderTextureHeight
+        || gSdlSurface->pitch < gSdlSurface->w) {
+        return;
     }
 
-    GSPGPU_FlushDataCache(renderTextureData, renderTextureByteCount);
+    uint32_t start = profileEnabled ? SDL_GetTicks() : 0;
+    if (profileEnabled && profileFrames == 0) profileStart = start;
+    int convertedRows = renderRows.update(
+        static_cast<const uint8_t*>(gSdlSurface->pixels), gSdlSurface->pitch,
+        gSdlSurface->w, gSdlSurface->h, gSdlSurface->format->palette->colors,
+        renderTextureData, renderTextureStride, forceFullUpload, o3dsV9FastRender());
+    uint32_t convertEnd = profileEnabled ? SDL_GetTicks() : 0;
 
-    C3D_SyncDisplayTransfer((u32*)renderTextureData, GX_BUFFER_DIM(renderTextureWidth, renderTextureHeight),
+    // Keep the existing synchronous GPU upload, byte order, and texture size.
+    // The VRAM texture remains valid when only the screen layout changes.
+    if (convertedRows != 0) {
+        GSPGPU_FlushDataCache(renderTextureData, renderTextureByteCount);
+        C3D_SyncDisplayTransfer((u32*)renderTextureData, GX_BUFFER_DIM(renderTextureWidth, renderTextureHeight),
             (u32*)render_tex.data, GX_BUFFER_DIM(renderTextureWidth, renderTextureHeight), TEXTURE_TRANSFER_FLAGS);
+        GSPGPU_FlushDataCache(render_tex.data, renderTextureByteCount);
+    }
+    uint32_t uploadEnd = profileEnabled ? SDL_GetTicks() : 0;
 
-    GSPGPU_FlushDataCache(render_tex.data, renderTextureByteCount);
+    // Leave input, script and audio timing untouched. Only suppress exact
+    // duplicate gameplay frames, and refresh at least every 50 ms as a
+    // conservative heartbeat for display/resume behavior. Any pixel or layout
+    // change is submitted immediately, so cursor movement is never throttled.
+    SceneSnapshot scene{};
+    bool trackScene = o3dsV9FastRender() && !forceFullUpload && captureScene(scene);
+    uint32_t drawNow = SDL_GetTicks();
+    bool redraw = shouldRedrawScene(trackScene, sceneValid, convertedRows,
+        lastScene, scene, drawNow - lastSceneDraw);
+    if (redraw) {
+        C3D_BindProgram(&program);
 
-    C3D_TexBind(0, &render_tex);
+        uLoc_projection = shaderInstanceGetUniformLocation(program.vertexShader, "projection");
+        C3D_AttrInfo* attrInfo = C3D_GetAttrInfo();
+        AttrInfo_Init(attrInfo);
+        AttrInfo_AddLoader(attrInfo, 0, GPU_FLOAT, 3); // v0=position
+        AttrInfo_AddLoader(attrInfo, 1, GPU_FLOAT, 2); // v1=texcoord
 
-    C3D_TexEnv* env = C3D_GetTexEnv(0);
-    C3D_TexEnvInit(env);
-    C3D_TexEnvSrc(env, C3D_Both, GPU_TEXTURE0, GPU_PRIMARY_COLOR, GPU_PRIMARY_COLOR);
-    C3D_TexEnvFunc(env, C3D_Both, GPU_REPLACE);
+        Mtx_OrthoTilt(&topProjection, 0, ctr_gfx.isWide ? GSP_SCREEN_HEIGHT_TOP_2X : GSP_SCREEN_HEIGHT_TOP, 0, GSP_SCREEN_WIDTH, 0.1f, 1.f, true);
+        Mtx_OrthoTilt(&bottomProjection, 0, GSP_SCREEN_HEIGHT_BOTTOM, 0, GSP_SCREEN_WIDTH, 0.1f, 1.f, true);
 
-    drawRects();
+        C3D_TexBind(0, &render_tex);
+
+        C3D_TexEnv* env = C3D_GetTexEnv(0);
+        C3D_TexEnvInit(env);
+        C3D_TexEnvSrc(env, C3D_Both, GPU_TEXTURE0, GPU_PRIMARY_COLOR, GPU_PRIMARY_COLOR);
+        C3D_TexEnvFunc(env, C3D_Both, GPU_REPLACE);
+
+        drawRects();
+
+        lastSceneDraw = drawNow;
+        if (trackScene) lastScene = scene;
+        sceneValid = trackScene;
+    }
+
+    if (profileEnabled) {
+        uint32_t now = SDL_GetTicks();
+        ++profileFrames;
+        profileDrawCalls += redraw;
+        profileUploads += convertedRows != 0;
+        profileRows += convertedRows;
+        profilePossibleRows += gSdlSurface->h;
+        profileConvertMs += convertEnd - start;
+        profileUploadMs += uploadEnd - convertEnd;
+        profileDrawMs += now - uploadEnd;
+        if (now - profileStart >= 10000) {
+            FILE* file = fopen("sdmc:/3ds/fallout2/o3ds-render-profile.csv", "a");
+            if (file) {
+                fprintf(file, "%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu,%lu\n",
+                    (unsigned long)(now - profileStart), (unsigned long)profileFrames,
+                    (unsigned long)profileUploads, (unsigned long)profileRows,
+                    (unsigned long)profilePossibleRows, (unsigned long)profileConvertMs,
+                    (unsigned long)profileUploadMs, (unsigned long)profileDrawMs, (unsigned long)profileDrawCalls);
+                fclose(file);
+            }
+            profileStart = now;
+            profileFrames = profileUploads = profileRows = profilePossibleRows = profileDrawCalls = 0;
+            profileConvertMs = profileUploadMs = profileDrawMs = 0;
+        }
+    }
 }
 
 void beginRender(bool vSync)
@@ -576,6 +664,7 @@ void initTransferTexture()
 
 void ctr_gfx_reinit()
 {
+    sceneValid = false;
     C3D_RenderTargetDelete(topRenderTarget);
 
     topRenderTarget = C3D_RenderTargetCreate(
@@ -596,6 +685,7 @@ void ctr_gfx_reinit()
 
 void ctr_gfx_init()
 {
+    sceneValid = false;
     if(gspHasGpuRight())
         gfxExit();
 
@@ -606,11 +696,11 @@ void ctr_gfx_init()
 
     gfxInitDefault();
 
-//    if (is2DS == 1) {
-//        gfxSetWide(true);
-//        ctr_gfx.isWide = gfxIsWide();
-//    } else
-        ctr_gfx.isWide = false;
+if (is2DS == 1) {
+    gfxSetWide(true);
+    ctr_gfx.isWide = gfxIsWide();
+} else
+    ctr_gfx.isWide = false;
 
     C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
 
@@ -637,6 +727,25 @@ void ctr_gfx_init()
     Mtx_OrthoTilt(&bottomProjection, 0, GSP_SCREEN_HEIGHT_BOTTOM, 0, GSP_SCREEN_WIDTH, 0.1f, 1.f, true);
 
     initTransferTexture();
+    ctr_gfx_invalidate();
+    // Optional troubleshooting and profiling switches (checked once at startup).
+    FILE* flag = fopen("sdmc:/3ds/fallout2/o3ds-render-compat.flag", "rb");
+    forceFullUpload = flag != nullptr;
+    if (flag) fclose(flag);
+    flag = fopen("sdmc:/3ds/fallout2/o3ds-render-profile.flag", "rb");
+    profileEnabled = flag != nullptr;
+    if (flag) fclose(flag);
+    profileFrames = profileUploads = profileRows = profilePossibleRows = profileDrawCalls = 0;
+    profileConvertMs = profileUploadMs = profileDrawMs = 0;
+    if (profileEnabled) {
+        FILE* log = fopen("sdmc:/3ds/fallout2/o3ds-render-profile.csv", "w");
+        if (log) {
+            fputs("elapsed_ms,render_calls,uploads,converted_rows,possible_rows,convert_ms,upload_ms,draw_ms,draw_submissions\n", log);
+            fclose(log);
+        } else {
+            profileEnabled = false;
+        }
+    }
     romfsInit();
 
 	if (!loadTextureFromFile(&static_tex, NULL, "romfs:/gfx/frame_tex.t3x")) {

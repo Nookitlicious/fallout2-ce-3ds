@@ -1,4 +1,5 @@
 #include "platform_compat.h"
+#include "o3ds_v7_options.h"
 
 #include <string.h>
 
@@ -82,6 +83,7 @@ void compat_splitpath(const char* path, char* drive, char* dir, char* fname, cha
     while (*end != '\0') {
         if (*end == '/') {
             fnameStart = end + 1;
+            extStart = nullptr;
         } else if (*end == '.') {
             extStart = end;
         }
@@ -225,11 +227,38 @@ unsigned int compat_timeGetTime()
 #endif
 }
 
+#ifdef __3DS__
+static bool nativeSdPath(const char* path)
+{
+    static const bool nativeSdLookup = []() {
+        FILE* flag = fopen("sdmc:/3ds/fallout2/o3ds-io-compat.flag", "rb");
+        if (flag) { fclose(flag); return false; }
+        struct stat lower, upper;
+        return stat("sdmc:/3ds/fallout2", &lower) == 0
+            && stat("sdmc:/3DS/FALLOUT2", &upper) == 0
+            && S_ISDIR(lower.st_mode) && S_ISDIR(upper.st_mode);
+    }();
+    if (!nativeSdLookup) return false;
+    if (strncmp(path, "sdmc:/", 6) == 0) return true;
+    if (strchr(path, ':') != nullptr) return false;
+    char cwd[COMPAT_MAX_PATH];
+    return getcwd(cwd, sizeof(cwd)) && strncmp(cwd, "sdmc:/", 6) == 0;
+}
+#endif
+
 FILE* compat_fopen(const char* path, const char* mode)
 {
     char nativePath[COMPAT_MAX_PATH];
+    if (strlen(path) >= sizeof(nativePath)) return nullptr;
     strcpy(nativePath, path);
     compat_windows_path_to_native(nativePath);
+#ifdef __3DS__
+    if (o3dsV7FastIo() && nativeSdPath(nativePath)) return fopen(nativePath, mode);
+    if (mode[0] == 'r' && strchr(mode, '+') == nullptr) {
+        FILE* stream = fopen(nativePath, mode);
+        if (stream != nullptr || nativeSdPath(nativePath)) return stream;
+    }
+#endif
     compat_resolve_path(nativePath);
     return fopen(nativePath, mode);
 }
@@ -237,6 +266,7 @@ FILE* compat_fopen(const char* path, const char* mode)
 gzFile compat_gzopen(const char* path, const char* mode)
 {
     char nativePath[COMPAT_MAX_PATH];
+    if (!path || strlen(path) >= sizeof(nativePath)) return nullptr;
     strcpy(nativePath, path);
     compat_windows_path_to_native(nativePath);
     compat_resolve_path(nativePath);
@@ -312,6 +342,9 @@ void compat_windows_path_to_native(char* path)
 
 void compat_resolve_path(char* path)
 {
+#ifdef __3DS__
+    if (o3dsV7FastIo() && nativeSdPath(path)) return;
+#endif
 #ifndef _WIN32
     char* pch = path;
 

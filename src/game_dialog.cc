@@ -41,7 +41,9 @@
 #include "text_object.h"
 #include "tile.h"
 #include "window_manager.h"
-
+#ifdef __3DS__
+#include "platform/ctr/ctr_rectmap.h"
+#endif
 namespace fallout {
 
 #define DIALOG_REVIEW_ENTRIES_CAPACITY 80
@@ -930,7 +932,12 @@ int _gdialogInitFromScript(int headFid, int reaction)
     }
 
     _gdDialogWentOff = true;
-
+#ifdef __3DS__
+    if (ctr_rectMap.main == DISPLAY_FIELD || ctr_rectMap.main == DISPLAY_GUI) {
+        setPreviousRectMap(0);
+    }
+    setActiveRectMap(DISPLAY_DIALOG);
+#endif
     GameMode::enterGameMode(GameMode::kDialog);
 
     return 0;
@@ -1020,7 +1027,9 @@ int _gdialogExitFromScript()
     }
 
     _gdDialogWentOff = true;
-
+#ifdef __3DS__
+    setActiveRectMap(getPreviousRectMap(0));
+#endif
     return 0;
 }
 

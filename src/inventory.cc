@@ -23,6 +23,7 @@
 #include "game_mouse.h"
 #include "game_sound.h"
 #include "input.h"
+#include "o3ds_menu_profile.h"
 #include "interface.h"
 #include "item.h"
 #include "kb.h"
@@ -45,7 +46,9 @@
 #include "text_font.h"
 #include "tile.h"
 #include "window_manager.h"
-
+#ifdef __3DS__
+#include "platform/ctr/ctr_rectmap.h"
+#endif
 namespace fallout {
 
 #define INVENTORY_WINDOW_X 80
@@ -555,6 +558,7 @@ static int inventoryMessageListFree()
 // 0x46E7B0
 void inventoryOpen()
 {
+    O3dsMenuProfile profile("inventory");
     if (isInCombat()) {
         if (_combat_whose_turn() != _inven_dude) {
             return;
@@ -567,6 +571,7 @@ void inventoryOpen()
         return;
     }
 
+    profile.mark("messages_cursors_and_setup");
     if (isInCombat()) {
         if (_inven_dude == gDude) {
             int actionPointsRequired = 4 - 2 * perkGetRank(_inven_dude, PERK_QUICK_POCKETS);
@@ -597,11 +602,13 @@ void inventoryOpen()
 
     Object* oldArmor = critterGetArmor(_inven_dude);
     bool isoWasEnabled = _setup_inventory(INVENTORY_WINDOW_TYPE_NORMAL);
+    profile.mark("window_setup");
     reg_anim_clear(_inven_dude);
     inventoryRenderSummary();
     _display_inventory(_stack_offset[_curr_stack], -1, INVENTORY_WINDOW_TYPE_NORMAL);
     inventorySetCursor(INVENTORY_WINDOW_CURSOR_HAND);
 
+    profile.finish();
     for (;;) {
         sharedFpsLimiter.mark();
 
@@ -1517,7 +1524,24 @@ static bool _setup_inventory(int inventoryWindowType)
     bool isoWasEnabled = isoDisable();
 
     _gmouse_disable(0);
+#ifdef __3DS__
+    setPreviousRectMap(1);
 
+    switch (inventoryWindowType) {
+        case INVENTORY_WINDOW_TYPE_NORMAL:
+            setActiveRectMap(DISPLAY_INVENTORY);
+            break;
+        case INVENTORY_WINDOW_TYPE_USE_ITEM_ON:
+            setActiveRectMap(DISPLAY_INVENTORY_USE);
+            break;
+        case INVENTORY_WINDOW_TYPE_LOOT:
+            setActiveRectMap(DISPLAY_INVENTORY_LOOT);
+            break;
+        case INVENTORY_WINDOW_TYPE_TRADE:
+            setActiveRectMap(DISPLAY_INVENTORY_TRADE);
+            break;
+    }
+#endif
     return isoWasEnabled;
 }
 
@@ -2188,6 +2212,9 @@ static void inventoryCommonFree()
     inventoryMessageListFree();
 
     _inven_is_initialized = 0;
+    #ifdef __3DS__
+    setActiveRectMap(getPreviousRectMap(1));
+#endif
 }
 
 // 0x470BCC

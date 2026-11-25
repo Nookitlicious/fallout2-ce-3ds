@@ -239,6 +239,9 @@ int directDrawInit(int width, int height, int bpp)
     }
 
     SDL_SetPaletteColors(gSdlSurface->format->palette, colors, 0, 256);
+#ifdef __3DS__
+    ctr_gfx_invalidate();
+#endif
 
     return 0;
 }
@@ -317,8 +320,12 @@ unsigned char* directDrawGetPalette()
 // 0x4CB850
 void _GNW95_ShowRect(unsigned char* src, int srcPitch, int a3, int srcX, int srcY, int srcWidth, int srcHeight, int destX, int destY)
 {
+#ifdef __3DS__
+    ctr_gfx_copy_rect(src + srcPitch * srcY + srcX, srcPitch,
+        (unsigned char*)gSdlSurface->pixels + gSdlSurface->pitch * destY + destX,
+        gSdlSurface->pitch, srcWidth, srcHeight, destY);
+#else
     blitBufferToBuffer(src + srcPitch * srcY + srcX, srcWidth, srcHeight, srcPitch, (unsigned char*)gSdlSurface->pixels + gSdlSurface->pitch * destY + destX, gSdlSurface->pitch);
-#ifndef __3DS__
     SDL_Rect srcRect;
     srcRect.x = destX;
     srcRect.y = destY;
@@ -346,7 +353,9 @@ void _GNW95_zero_vid_mem()
         memset(surface, 0, gSdlSurface->w);
         surface += gSdlSurface->pitch;
     }
-#ifndef __3DS__
+#ifdef __3DS__
+    ctr_gfx_invalidate();
+#else
     SDL_BlitSurface(gSdlSurface, nullptr, gSdlTextureSurface, nullptr);
 #endif
 }

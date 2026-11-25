@@ -27,6 +27,8 @@
 #include "loadsave.h"
 #include "memory.h"
 #include "object.h"
+#include "o3ds_load_profile.h"
+#include "o3ds_v9_options.h"
 #include "palette.h"
 #include "party_member.h"
 #include "pipboy.h"
@@ -682,10 +684,18 @@ int mapScroll(int dx, int dy)
         step = pitch;
     }
 
-    for (int y = 0; y < height; y++) {
-        memmove(dest, src, width);
-        dest += step;
-        src += step;
+    if (o3dsV9FastRender() && screenDx == 0 && height > 0 && width == pitch) {
+        if (step < 0) {
+            src -= (height - 1) * pitch;
+            dest -= (height - 1) * pitch;
+        }
+        memmove(dest, src, static_cast<size_t>(height) * pitch);
+    } else {
+        for (int y = 0; y < height; y++) {
+            memmove(dest, src, width);
+            dest += step;
+            src += step;
+        }
     }
 
     if (screenDx != 0) {
@@ -815,7 +825,9 @@ int mapLoadById(int map)
 // 0x482B74
 static int mapLoad(File* stream)
 {
+    O3dsLoadProfile profile("map_load");
     _map_save_in_game(true);
+    profile.mark("save_previous_map");
     backgroundSoundLoad("wind2", 12, 13, 16);
     isoDisable();
     _partyMemberPrepLoad();
@@ -838,6 +850,7 @@ static int mapLoad(File* stream)
     animationStop();
     scriptsDisable();
 
+    profile.mark("setup");
     gMapSid = -1;
 
     const char* error = nullptr;
@@ -900,16 +913,19 @@ static int mapLoad(File* stream)
         goto err;
     }
 
+    profile.mark("header_variables_tiles");
     error = "Error reading scripts";
     if (scriptLoadAll(stream) != 0) {
         goto err;
     }
 
+    profile.mark("read_scripts");
     error = "Error reading objects";
     if (objectLoadAll(stream) != 0) {
         goto err;
     }
 
+    profile.mark("read_objects");
     if ((gMapHeader.flags & 1) == 0) {
         _map_fix_critter_combat_data();
     }
@@ -947,6 +963,7 @@ static int mapLoad(File* stream)
         gMapHeader.globalVariablesCount = gMapGlobalVarsLength;
     }
 
+    profile.mark("world_setup");
     scriptsEnable();
 
     if (gMapHeader.scriptIndex > 0) {
@@ -980,6 +997,7 @@ static int mapLoad(File* stream)
         }
     }
 
+    profile.mark("map_script_setup");
     error = nullptr;
 
 err:
@@ -994,6 +1012,7 @@ err:
         _obj_preload_art_cache(gMapHeader.flags);
     }
 
+    profile.mark("art_preload_or_error");
     _partyMemberRecoverLoad();
     interfaceBarShow();
     _proto_dude_update_gender();
@@ -1003,12 +1022,14 @@ err:
     _gmouse_disable_scrolling();
     gameMouseSetCursor(MOUSE_CURSOR_WAIT_PLANET);
 
+    profile.mark("party_interface");
     if (scriptsExecStartProc() == -1) {
         debugPrint("\n   Error: scr_load_all_scripts failed!");
     }
 
     scriptsExecMapEnterProc();
     scriptsExecMapUpdateProc();
+    profile.mark("map_enter_scripts");
     tileEnable();
 
     if (gMapTransition.map > 0) {
@@ -1019,6 +1040,7 @@ err:
         tileWindowRefresh();
     }
 
+    profile.mark("first_tile_render");
     gameTimeScheduleUpdateEvent();
 
     if (_gsound_sfx_q_start() == -1) {
@@ -1047,6 +1069,7 @@ err:
 
     gMapHeader.version = 20;
 
+    profile.finish(rc == 0 ? "ok" : "error");
     return rc;
 }
 
@@ -1323,7 +1346,7 @@ static int _map_save()
         File* stream = fileOpen(mapFileName, "wb");
         if (stream != nullptr) {
             rc = _map_save_file(stream);
-            fileClose(stream);
+            if (fileClose(stream) != 0) rc = -1;
         } else {
             snprintf(temp, sizeof(temp), "Unable to open %s to write!", gMapHeader.name);
             debugPrint(temp);
@@ -1390,19 +1413,19 @@ static int _map_save_file(File* stream)
     gMapHeader.globalVariablesCount = gMapGlobalVarsLength;
     gMapHeader.darkness = 1;
 
-    mapHeaderWrite(&gMapHeader, stream);
+    if (mapHeaderWrite(&gMapHeader, stream) == -1) { scriptsEnable(); return -1; }
 
     if (gMapHeader.globalVariablesCount != 0) {
-        fileWriteInt32List(stream, gMapGlobalVars, gMapHeader.globalVariablesCount);
+        if (fileWriteInt32List(stream, gMapGlobalVars, gMapHeader.globalVariablesCount) == -1) { scriptsEnable(); return -1; }
     }
 
     if (gMapHeader.localVariablesCount != 0) {
-        fileWriteInt32List(stream, gMapLocalVars, gMapHeader.localVariablesCount);
+        if (fileWriteInt32List(stream, gMapLocalVars, gMapHeader.localVariablesCount) == -1) { scriptsEnable(); return -1; }
     }
 
     for (int elevation = 0; elevation < ELEVATION_COUNT; elevation++) {
         if ((gMapHeader.flags & _map_data_elev_flags[elevation]) == 0) {
-            _db_fwriteLongCount(stream, _square[elevation]->field_0, SQUARE_GRID_SIZE);
+            if (_db_fwriteLongCount(stream, _square[elevation]->field_0, SQUARE_GRID_SIZE) == -1) { scriptsEnable(); return -1; }
         }
     }
 
@@ -1411,11 +1434,15 @@ static int _map_save_file(File* stream)
     if (scriptSaveAll(stream) == -1) {
         snprintf(err, sizeof(err), "Error saving scripts in %s", gMapHeader.name);
         _win_msg(err, 80, 80, _colorTable[31744]);
+        scriptsEnable();
+        return -1;
     }
 
     if (objectSaveAll(stream) == -1) {
         snprintf(err, sizeof(err), "Error saving objects in %s", gMapHeader.name);
         _win_msg(err, 80, 80, _colorTable[31744]);
+        scriptsEnable();
+        return -1;
     }
 
     scriptsEnable();
@@ -1430,8 +1457,10 @@ int _map_save_in_game(bool a1)
         return 0;
     }
 
+    O3dsLoadProfile profile("map_save");
     animationStop();
     _partyMemberSaveProtos();
+    profile.mark("party_protos");
 
     if (a1) {
         _queue_leaving_map();
@@ -1448,6 +1477,7 @@ int _map_save_in_game(bool a1)
         _obj_reset_roof();
     }
 
+    profile.mark("exit_scripts_and_queue");
     gMapHeader.flags |= 0x01;
     gMapHeader.lastVisitTime = gameTimeGetTime();
 
@@ -1465,23 +1495,26 @@ int _map_save_in_game(bool a1)
 
         strcpy(name, gMapHeader.name);
         _strmfe(gMapHeader.name, name, "SAV");
-        if (_map_save() == -1) {
-            return -1;
-        }
-
+        int saveRc = _map_save();
         strcpy(gMapHeader.name, name);
+        if (saveRc == -1) return -1;
+        profile.mark("write_map_file");
 
         automapSaveCurrent();
+        profile.mark("automap_save");
 
         if (a1) {
             gMapHeader.name[0] = '\0';
             _obj_remove_all();
+            profile.mark("remove_objects");
             _proto_remove_all();
+            profile.mark("remove_protos");
             _square_reset();
             gameTimeScheduleUpdateEvent();
         }
     }
 
+    profile.finish();
     return 0;
 }
 

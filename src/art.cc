@@ -1,6 +1,7 @@
 #include "art.h"
 
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -1030,6 +1031,24 @@ int buildFid(int objectType, int frmId, int animType, int weaponCode, int rotati
     return buildFidInternal(frmId, weaponCode, animType, objectType, rotation);
 }
 
+// Decode on-disk big-endian fields without alignment-dependent loads.
+static short artDiskInt16(const unsigned char* p)
+{
+    uint16_t bits = (uint16_t(p[0]) << 8) | uint16_t(p[1]);
+    short value;
+    memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+
+static int artDiskInt32(const unsigned char* p)
+{
+    uint32_t bits = (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16)
+        | (uint32_t(p[2]) << 8) | uint32_t(p[3]);
+    int value;
+    memcpy(&value, &bits, sizeof(value));
+    return value;
+}
+
 // 0x419D60
 static int artReadFrameData(unsigned char* data, File* stream, int count, int* paddingPtr)
 {
@@ -1038,12 +1057,15 @@ static int artReadFrameData(unsigned char* data, File* stream, int count, int* p
     for (int index = 0; index < count; index++) {
         ArtFrame* frame = (ArtFrame*)ptr;
 
-        if (fileReadInt16(stream, &(frame->width)) == -1) return -1;
-        if (fileReadInt16(stream, &(frame->height)) == -1) return -1;
-        if (fileReadInt32(stream, &(frame->size)) == -1) return -1;
-        if (fileReadInt16(stream, &(frame->x)) == -1) return -1;
-        if (fileReadInt16(stream, &(frame->y)) == -1) return -1;
-        if (fileRead(ptr + sizeof(ArtFrame), frame->size, 1, stream) != 1) return -1;
+        unsigned char header[12];
+        if (fileRead(header, 1, sizeof(header), stream) != sizeof(header)) return -1;
+        frame->width = artDiskInt16(header);
+        frame->height = artDiskInt16(header + 2);
+        frame->size = artDiskInt32(header + 4);
+        frame->x = artDiskInt16(header + 8);
+        frame->y = artDiskInt16(header + 10);
+        if (frame->size <= 0) return -1;
+        if (fileRead(ptr + sizeof(ArtFrame), 1, frame->size, stream) != static_cast<size_t>(frame->size)) return -1;
 
         ptr += sizeof(ArtFrame) + frame->size;
         ptr += paddingForSize(frame->size);
@@ -1058,14 +1080,19 @@ static int artReadFrameData(unsigned char* data, File* stream, int count, int* p
 // 0x419E1C
 static int artReadHeader(Art* art, File* stream)
 {
-    if (fileReadInt32(stream, &(art->field_0)) == -1) return -1;
-    if (fileReadInt16(stream, &(art->framesPerSecond)) == -1) return -1;
-    if (fileReadInt16(stream, &(art->actionFrame)) == -1) return -1;
-    if (fileReadInt16(stream, &(art->frameCount)) == -1) return -1;
-    if (fileReadInt16List(stream, art->xOffsets, ROTATION_COUNT) == -1) return -1;
-    if (fileReadInt16List(stream, art->yOffsets, ROTATION_COUNT) == -1) return -1;
-    if (fileReadInt32List(stream, art->dataOffsets, ROTATION_COUNT) == -1) return -1;
-    if (fileReadInt32(stream, &(art->dataSize)) == -1) return -1;
+    // The original FRM header is 62 bytes regardless of compiler padding.
+    unsigned char header[62];
+    if (fileRead(header, 1, sizeof(header), stream) != sizeof(header)) return -1;
+    art->field_0 = artDiskInt32(header);
+    art->framesPerSecond = artDiskInt16(header + 4);
+    art->actionFrame = artDiskInt16(header + 6);
+    art->frameCount = artDiskInt16(header + 8);
+    for (int i = 0; i < ROTATION_COUNT; i++) {
+        art->xOffsets[i] = artDiskInt16(header + 10 + 2 * i);
+        art->yOffsets[i] = artDiskInt16(header + 22 + 2 * i);
+        art->dataOffsets[i] = artDiskInt32(header + 34 + 4 * i);
+    }
+    art->dataSize = artDiskInt32(header + 58);
 
     // CE: Fix malformed `frm` files with `dataSize` set to 0 in Nevada.
     if (art->dataSize == 0) {

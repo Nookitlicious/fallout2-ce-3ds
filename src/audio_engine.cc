@@ -13,7 +13,7 @@ struct LightLockGuard {
     LightLock* lock;
 
     LightLockGuard(LightLock* _lock) : lock(_lock) {
-        LightLock_Init(lock);
+        // Initialized once before starting the audio callback.
         LightLock_Lock(lock);
     }
 
@@ -52,12 +52,12 @@ static bool soundBufferIsValid(int soundBufferIndex);
 static void audioEngineMixin(void* userData, Uint8* stream, int length);
 
 static SDL_AudioSpec gAudioEngineSpec;
-static SDL_AudioDeviceID gAudioEngineDeviceId = -1;
+static SDL_AudioDeviceID gAudioEngineDeviceId = 0;
 static AudioEngineSoundBuffer gAudioEngineSoundBuffers[AUDIO_ENGINE_SOUND_BUFFERS];
 
 static bool audioEngineIsInitialized()
 {
-    return gAudioEngineDeviceId != -1;
+    return gAudioEngineDeviceId != 0;
 }
 
 static bool soundBufferIsValid(int soundBufferIndex)
@@ -93,7 +93,17 @@ static void audioEngineMixin(void* userData, Uint8* stream, int length)
                 }
 
                 // TODO: Make something better than frame-by-frame convertion.
-                SDL_AudioStreamPut(soundBuffer->stream, (unsigned char*)soundBuffer->data + soundBuffer->pos, srcFrameSize);
+                if (soundBuffer->pos >= soundBuffer->size
+                    || (unsigned int)srcFrameSize > soundBuffer->size - soundBuffer->pos) {
+                    if (!soundBuffer->looping || (unsigned int)srcFrameSize > soundBuffer->size) {
+                        soundBuffer->playing = false;
+                        break;
+                    }
+                    soundBuffer->pos = 0;
+                }
+                if (SDL_AudioStreamPut(soundBuffer->stream, (unsigned char*)soundBuffer->data + soundBuffer->pos, srcFrameSize) < 0) {
+                    break;
+                }
                 soundBuffer->pos += srcFrameSize;
 
                 int bytesRead = SDL_AudioStreamGet(soundBuffer->stream, buffer, remaining);
@@ -128,7 +138,14 @@ bool audioEngineInit()
         return false;
     }
 
-    SDL_AudioSpec desiredSpec;
+#ifdef __3DS__
+    // No audio callback can be running yet. Do not reset locks while in use.
+    for (auto& soundBuffer : gAudioEngineSoundBuffers) {
+        LightLock_Init(&soundBuffer.mutex);
+    }
+#endif
+
+    SDL_AudioSpec desiredSpec{};
     desiredSpec.freq = 22050;
     desiredSpec.format = AUDIO_S16;
     desiredSpec.channels = 2;
@@ -136,7 +153,7 @@ bool audioEngineInit()
     desiredSpec.callback = audioEngineMixin;
 
     gAudioEngineDeviceId = SDL_OpenAudioDevice(nullptr, 0, &desiredSpec, &gAudioEngineSpec, SDL_AUDIO_ALLOW_ANY_CHANGE);
-    if (gAudioEngineDeviceId == -1) {
+    if (gAudioEngineDeviceId == 0) {
         return false;
     }
 
@@ -149,7 +166,7 @@ void audioEngineExit()
 {
     if (audioEngineIsInitialized()) {
         SDL_CloseAudioDevice(gAudioEngineDeviceId);
-        gAudioEngineDeviceId = -1;
+        gAudioEngineDeviceId = 0;
     }
 }
 
@@ -182,7 +199,10 @@ int audioEngineCreateSoundBuffer(unsigned int size, int bitsPerSample, int chann
 #endif
 
         if (!soundBuffer->active) {
-            soundBuffer->active = true;
+            if (size == 0 || (bitsPerSample != 8 && bitsPerSample != 16)
+                || channels <= 0 || rate <= 0) {
+                return -1;
+            }
             soundBuffer->size = size;
             soundBuffer->bitsPerSample = bitsPerSample;
             soundBuffer->channels = channels;
@@ -192,7 +212,16 @@ int audioEngineCreateSoundBuffer(unsigned int size, int bitsPerSample, int chann
             soundBuffer->looping = false;
             soundBuffer->pos = 0;
             soundBuffer->data = malloc(size);
+            if (soundBuffer->data == nullptr) {
+                return -1;
+            }
             soundBuffer->stream = SDL_NewAudioStream(bitsPerSample == 16 ? AUDIO_S16 : AUDIO_S8, channels, rate, gAudioEngineSpec.format, gAudioEngineSpec.channels, gAudioEngineSpec.freq);
+            if (soundBuffer->stream == nullptr) {
+                free(soundBuffer->data);
+                soundBuffer->data = nullptr;
+                return -1;
+            }
+            soundBuffer->active = true;
             return index;
         }
     }
@@ -453,13 +482,15 @@ bool audioEngineSoundBufferLock(int soundBufferIndex, unsigned int writePos, uns
         return false;
     }
 
-    if (audioBytes1 == nullptr) {
+    if (audioPtr1 == nullptr || audioBytes1 == nullptr || soundBuffer->size == 0) {
         return false;
     }
 
+    // Already holding the buffer lock; do not recursively acquire LightLock.
     if ((flags & AUDIO_ENGINE_SOUND_BUFFER_LOCK_FROM_WRITE_POS) != 0) {
-        if (!audioEngineSoundBufferGetCurrentPosition(soundBufferIndex, nullptr, &writePos)) {
-            return false;
+        writePos = soundBuffer->pos;
+        if (soundBuffer->playing) {
+            writePos = (writePos + soundBuffer->rate / 150) % soundBuffer->size;
         }
     }
 
@@ -467,7 +498,12 @@ bool audioEngineSoundBufferLock(int soundBufferIndex, unsigned int writePos, uns
         writeBytes = soundBuffer->size;
     }
 
-    if (writePos + writeBytes <= soundBuffer->size) {
+    // This API can describe at most one wrap around the circular buffer.
+    if (writePos >= soundBuffer->size || writeBytes > soundBuffer->size) {
+        return false;
+    }
+
+    if (writeBytes <= soundBuffer->size - writePos) {
         *(unsigned char**)audioPtr1 = (unsigned char*)soundBuffer->data + writePos;
         *audioBytes1 = writeBytes;
 
@@ -479,7 +515,6 @@ bool audioEngineSoundBufferLock(int soundBufferIndex, unsigned int writePos, uns
             *audioBytes2 = 0;
         }
     } else {
-        unsigned int remainder = writePos + writeBytes - soundBuffer->size;
         *(unsigned char**)audioPtr1 = (unsigned char*)soundBuffer->data + writePos;
         *audioBytes1 = soundBuffer->size - writePos;
 

@@ -36,6 +36,9 @@
 #include "message.h"
 #include "mouse.h"
 #include "object.h"
+#include "o3ds_load_profile.h"
+#include "o3ds_v7_options.h"
+#include "o3ds_party_snapshot.h"
 #include "party_member.h"
 #include "perk.h"
 #include "pipboy.h"
@@ -57,6 +60,10 @@
 #include "trait.h"
 #include "version.h"
 #include "window_manager.h"
+#ifdef __3DS__
+#include "platform/ctr/ctr_rectmap.h"
+#include "platform/ctr/ctr_input.h"
+#endif
 #include "word_wrap.h"
 #include "worldmap.h"
 
@@ -1499,6 +1506,11 @@ static int lsgWindowInit(int windowType)
     buttonCreate(gLoadSaveWindow, 55, 87, 230, 353, -1, -1, -1, 502, nullptr, nullptr, nullptr, BUTTON_FLAG_TRANSPARENT);
     fontSetCurrent(101);
 
+    #ifdef __3DS__
+setPreviousRectMap(0);
+setActiveRectMap(DISPLAY_LOADSAVE);
+#endif
+
     return 0;
 }
 
@@ -1523,6 +1535,10 @@ static int lsgWindowFree(int windowType)
 
     colorCycleEnable();
     gameMouseSetCursor(MOUSE_CURSOR_ARROW);
+
+    #ifdef __3DS__
+setActiveRectMap(getPreviousRectMap(0));
+#endif
 
     return 0;
 }
@@ -1698,6 +1714,7 @@ bool _isLoadingGame()
 // 0x47DC68
 static int lsgLoadGameInSlot(int slot)
 {
+    O3dsLoadProfile profile("save_load");
     _loadingGame = true;
 
     if (isInCombat()) {
@@ -1730,6 +1747,13 @@ static int lsgLoadGameInSlot(int slot)
 
     debugPrint("LOADSAVE: Load file header size read: %d bytes.\n", fileTell(_flptr) - pos);
 
+    profile.mark("open_and_header");
+#ifdef __3DS__
+    static const char* const handlerNames[] = {
+        "prepare", "dude_cid", "global_vars", "restore_maps", "skip_vars", "dude", "critters", "kills", "skills", "random", "perks", "combat", "ai", "stats", "items", "traits", "automap", "preferences", "character", "worldmap", "pipboy", "movies", "skills_usage", "party", "queue", "interface", "end"
+    };
+    static_assert(sizeof(handlerNames) / sizeof(handlerNames[0]) == LOAD_SAVE_HANDLER_COUNT, "load handler count");
+#endif
     for (int index = 0; index < LOAD_SAVE_HANDLER_COUNT; index += 1) {
         long pos = fileTell(_flptr);
         LoadGameHandler* handler = _master_load_list[index];
@@ -1743,6 +1767,9 @@ static int lsgLoadGameInSlot(int slot)
             return -1;
         }
 
+#ifdef __3DS__
+        profile.mark(handlerNames[index]);
+#endif
         debugPrint("LOADSAVE: Load function #%d data size read: %d bytes.\n", index, fileTell(_flptr) - pos);
     }
 
@@ -1784,6 +1811,7 @@ static int lsgLoadGameInSlot(int slot)
     // SFALL: Start global scripts.
     sfall_gl_scr_exec_start_proc();
 
+    profile.finish();
     return 0;
 }
 
@@ -2298,6 +2326,9 @@ static int _GetComment(int slot)
 // 0x47F084
 static int _get_input_str2(int win, int doneKeyCode, int cancelKeyCode, char* description, int maxLength, int x, int y, int textColor, int backgroundColor, int flags)
 {
+#ifdef __3DS__
+    return ctr_input_edit_text("Save description", description, maxLength, true, (flags & 1) != 0) ? 0 : -1;
+#endif
     int cursorWidth = fontGetStringWidth("_") - 4;
     int windowWidth = windowGetWidth(win);
     int lineHeight = fontGetLineHeight();
@@ -2453,6 +2484,9 @@ static int _GameMap2Slot(File* stream)
             continue;
         }
 
+        // A manual save must include every companion, including those not
+        // encountered since loading. Never copy a missing deferred record.
+        if (protoMaterializePending(pid) == -1) return -1;
         const char* critterItemPath = (pid >> 24) == OBJ_TYPE_CRITTER
             ? PROTO_DIR_NAME "\\" CRITTERS_DIR_NAME
             : PROTO_DIR_NAME "\\" ITEMS_DIR_NAME;
@@ -2495,7 +2529,7 @@ static int _GameMap2Slot(File* stream)
 
     for (int index = 0; index < fileNameListLength; index += 1) {
         char* string = fileNameList[index];
-        if (fileWrite(string, strlen(string) + 1, 1, stream) == -1) {
+        if (fileWrite(string, strlen(string) + 1, 1, stream) != 1) {
             fileNameListFree(&fileNameList, 0);
             return -1;
         }
@@ -2547,6 +2581,7 @@ static int _GameMap2Slot(File* stream)
 // 0x47F990
 static int _SlotMap2Game(File* stream)
 {
+    O3dsLoadProfile profile("restore_maps");
     debugPrint("LOADSAVE: in SlotMap2Game\n");
 
     int fileNameListLength;
@@ -2555,7 +2590,7 @@ static int _SlotMap2Game(File* stream)
         return -1;
     }
 
-    if (fileNameListLength == 0) {
+    if (fileNameListLength <= 0) {
         debugPrint("LOADSAVE: returning 2\n");
         return -1;
     }
@@ -2581,6 +2616,7 @@ static int _SlotMap2Game(File* stream)
 
     snprintf(_str0, sizeof(_str0), "%s\\%s\\%s", _patches, "MAPS", "AUTOMAP.DB");
     compat_remove(_str0);
+    profile.mark("erase_working_files");
 
     for (int index = 1; index < gPartyMemberDescriptionsLength; index += 1) {
         int pid = gPartyMemberPids[index];
@@ -2593,22 +2629,44 @@ static int _SlotMap2Game(File* stream)
                 snprintf(_str0, sizeof(_str0), "%s\\%s\\%s", _patches, basePath, protoPath);
                 snprintf(_str1, sizeof(_str1), "%s\\%s\\%s%.2d\\%s\\%s", _patches, "SAVEGAME", "SLOT", _slot_cursor + 1, basePath, protoPath);
 #ifdef __3DS__
-                if (fileCopyDecompressed(_str1, _str0) == -1) {
+                unsigned char snapshot[O3DS_CRITTER_PROTO_BYTES];
+                unsigned int snapshotSize = 0;
+                // Confirm that no two configured PIDs share the same filename.
+                // Modified/large lists and noncanonical records use V10 I/O.
+                bool canDefer = gPartyMemberDescriptionsLength <= 64 && protoCanDeferRestored(pid, protoPath);
+                if (canDefer) {
+                    for (int other = 1; other < gPartyMemberDescriptionsLength; ++other) {
+                        if (other == index || PID_TYPE(gPartyMemberPids[other]) != OBJ_TYPE_CRITTER) continue;
+                        char otherPath[COMPAT_MAX_PATH];
+                        if (_proto_list_str(gPartyMemberPids[other], otherPath) == 0 && compat_stricmp(protoPath, otherPath) == 0) {
+                            canDefer = false;
+                            break;
+                        }
+                    }
+                }
+                if (canDefer) {
+                    int rc = fileReadSmallDecompressed(_str1, snapshot, sizeof(snapshot), &snapshotSize);
+                    if (rc < 0) return -1;
+                    if (rc == 0 && protoDeferRestored(pid, protoPath, snapshot, snapshotSize)) continue;
+                }
+                if (fileCopyDecompressedSnapshot(_str1, _str0, snapshot, sizeof(snapshot), &snapshotSize) == -1) {
 #else
                 if (_gzdecompress_file(_str1, _str0) == -1) {
 #endif
                     debugPrint("LOADSAVE: returning 6\n");
                     return -1;
                 }
+#ifdef __3DS__
+                protoRememberRestored(pid, protoPath, snapshot, snapshotSize);
+#endif
             }
         }
     }
 
+    profile.mark("restore_companion_protos");
     for (int index = 0; index < fileNameListLength; index += 1) {
         char fileName[COMPAT_MAX_PATH];
-        if (_mygets(fileName, stream) == -1) {
-            break;
-        }
+        if (_mygets(fileName, stream) == -1) return -1;
 
         snprintf(_str0, sizeof(_str0), "%s\\%s\\%s%.2d\\%s", _patches, "SAVEGAME", "SLOT", _slot_cursor + 1, fileName);
         snprintf(_str1, sizeof(_str1), "%s\\%s\\%s", _patches, "MAPS", fileName);
@@ -2623,6 +2681,7 @@ static int _SlotMap2Game(File* stream)
         }
     }
 
+    profile.mark("restore_saved_map_files");
     const char* automapFileName = _strmfe(_str1, "AUTOMAP.DB", "SAV");
     snprintf(_str0, sizeof(_str0), "%s\\%s\\%s%.2d\\%s", _patches, "SAVEGAME", "SLOT", _slot_cursor + 1, automapFileName);
     snprintf(_str1, sizeof(_str1), "%s\\%s\\%s", _patches, "MAPS", "AUTOMAP.DB");
@@ -2639,39 +2698,34 @@ static int _SlotMap2Game(File* stream)
         return -1;
     }
 
+    profile.mark("restore_automap");
     if (mapLoadSaved(_LSData[_slot_cursor].fileName) == -1) {
         debugPrint("LOADSAVE: returning 13\n");
         return -1;
     }
 
+    profile.mark("load_current_map");
+    profile.finish();
     return 0;
 }
 
 // 0x47FE14
 static int _mygets(char* dest, File* stream)
 {
-    int index = 14;
-    while (true) {
+    // Save map names are short, NUL-terminated leaf filenames, not paths.
+    // Do not proceed with an unterminated name from a damaged save.
+    for (int i = 0; i < 15; ++i) {
         int c = fileReadChar(stream);
-        if (c == -1) {
-            return -1;
+        if (c == -1) return -1;
+        if (c == 0) {
+            dest[i] = '\0';
+            return i != 0 && strcmp(dest, ".") != 0 && strcmp(dest, "..") != 0 ? 0 : -1;
         }
-
-        index -= 1;
-
-        *dest = c & 0xFF;
-        dest += 1;
-
-        if (index == -1 || c == '\0') {
-            break;
-        }
+        if (c == '/' || c == '\\' || c == ':' || c < 32) return -1;
+        dest[i] = static_cast<char>(c);
     }
-
-    if (index == 0) {
-        return -1;
-    }
-
-    return 0;
+    dest[14] = '\0';
+    return -1;
 }
 
 // 0x47FE58
@@ -2758,7 +2812,15 @@ void lsgInit()
 // 0x480040
 int MapDirErase(const char* relativePath, const char* extension)
 {
+    if (compat_stricmp(extension, PROTO_FILE_EXT) == 0) protoClearPartySnapshots();
     char path[COMPAT_MAX_PATH];
+    if (o3dsV7FastIo() && _patches != nullptr) {
+        int n = snprintf(path, sizeof(path), "%s\\%s", _patches, relativePath);
+        if (n >= 0 && static_cast<size_t>(n) < sizeof(path)) {
+            int rc = fileEraseLocalExtension(path, extension);
+            if (rc != -2) return rc;
+        }
+    }
     snprintf(path, sizeof(path), "%s*.%s", relativePath, extension);
 
     char** fileList;

@@ -24,7 +24,9 @@
 #include "text_font.h"
 #include "text_object.h"
 #include "window_manager.h"
-
+#ifdef __3DS__
+#include "platform/ctr/ctr_rectmap.h"
+#endif
 namespace fallout {
 
 #define PREFERENCES_WINDOW_WIDTH 640
@@ -1218,7 +1220,10 @@ int doPreferences(bool animated)
         colorPaletteLoad("color.pal");
         paletteFadeTo(_cmap);
     }
-
+#ifdef __3DS__
+    rectMap_e previousLayout = ctr_rectMap.main;
+    setActiveRectMap(DISPLAY_OPTIONS);
+#endif
     int rc = -1;
     while (rc == -1) {
         sharedFpsLimiter.mark();
@@ -1276,6 +1281,10 @@ int doPreferences(bool animated)
     }
 
     preferencesWindowFree();
+
+    #ifdef __3DS__
+setActiveRectMap(previousLayout);
+#endif
 
     return rc;
 }

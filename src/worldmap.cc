@@ -26,6 +26,7 @@
 #include "game_movie.h"
 #include "game_sound.h"
 #include "input.h"
+#include "o3ds_menu_profile.h"
 #include "interface.h"
 #include "item.h"
 #include "kb.h"
@@ -4446,6 +4447,7 @@ static void wmInterfaceScrollTabsUpdate()
 // 0x4C2324
 static int wmInterfaceInit()
 {
+    O3dsMenuProfile profile("worldmap");
     int fid;
 
     wmLastRndTime = getTicks();
@@ -4458,6 +4460,7 @@ static int wmInterfaceInit()
 
     _map_save_in_game(true);
 
+    profile.mark("save_map");
     const char* backgroundSoundFileName = wmGenData.isInCar ? "20car" : "23world";
     _gsound_background_play_level_music(backgroundSoundFileName, 12);
 
@@ -4481,6 +4484,7 @@ static int wmInterfaceInit()
     // CE: Stop all animations.
     animationStop();
 
+    profile.mark("music_and_setup");
     int worldmapWindowX = (screenGetWidth() - WM_WINDOW_WIDTH) / 2;
     int worldmapWindowY = (screenGetHeight() - WM_WINDOW_HEIGHT) / 2;
     wmBkWin = windowCreate(worldmapWindowX, worldmapWindowY, WM_WINDOW_WIDTH, WM_WINDOW_HEIGHT, _colorTable[0], WINDOW_MOVE_ON_TOP);
@@ -4730,6 +4734,7 @@ static int wmInterfaceInit()
     scriptsDisable();
     _scr_remove_all();
 
+    profile.finish();
     return 0;
 }
 

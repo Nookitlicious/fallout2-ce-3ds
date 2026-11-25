@@ -7,6 +7,7 @@
 
 #include "db.h"
 #include "memory.h"
+#include "o3ds_lighting.h"
 #include "svga.h"
 
 namespace fallout {
@@ -66,6 +67,10 @@ Color colorMixAddTable[256][256];
 
 // 0x6838D0
 Color intensityColorTable[256][256];
+#ifdef __3DS__
+static O3dsLightRows gO3dsLightRows;
+const unsigned char* o3dsLightRow(int intensity) { return gO3dsLightRows.lookup(intensityColorTable, intensity); }
+#endif
 
 // 0x6938D0
 Color colorMixMulTable[256][256];
@@ -303,19 +308,18 @@ bool colorPaletteLoad(const char* path)
         return false;
     }
 
+    unsigned char rawPalette[768];
+    if (fileRead(rawPalette, 1, sizeof(rawPalette), stream) != sizeof(rawPalette)) {
+        fileClose(stream);
+        return false;
+    }
+#ifdef __3DS__
+    gO3dsLightRows.invalidate();
+#endif
     for (int index = 0; index < 256; index++) {
-        unsigned char r;
-        unsigned char g;
-        unsigned char b;
-
-        // NOTE: Uninline.
-        fileRead(&r, sizeof(r), 1, stream);
-
-        // NOTE: Uninline.
-        fileRead(&g, sizeof(g), 1, stream);
-
-        // NOTE: Uninline.
-        fileRead(&b, sizeof(b), 1, stream);
+        unsigned char r = rawPalette[index * 3];
+        unsigned char g = rawPalette[index * 3 + 1];
+        unsigned char b = rawPalette[index * 3 + 2];
 
         if (r <= 0x3F && g <= 0x3F && b <= 0x3F) {
             _mappedColor[index] = 1;

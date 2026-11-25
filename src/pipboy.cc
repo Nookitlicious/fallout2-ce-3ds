@@ -21,10 +21,12 @@
 #include "game_sound.h"
 #include "geometry.h"
 #include "input.h"
+#include "o3ds_menu_profile.h"
 #include "interface.h"
 #include "kb.h"
 #include "map.h"
 #include "memory.h"
+#include "o3ds_text_reader.h"
 #include "message.h"
 #include "mouse.h"
 #include "object.h"
@@ -489,6 +491,7 @@ int pipboyOpen(int intent)
 // 0x497228
 static int pipboyWindowInit(int intent)
 {
+    O3dsMenuProfile profile("pipboy");
     gPipboyWindowIsoWasEnabled = isoDisable();
 
     colorCycleDisable();
@@ -528,6 +531,7 @@ static int pipboyWindowInit(int intent)
         return -1;
     }
 
+    profile.mark("holodisks_and_messages");
     int index;
     for (index = 0; index < PIPBOY_FRM_COUNT; index++) {
         int fid = buildFid(OBJ_TYPE_INTERFACE, gPipboyFrmIds[index], 0, 0, 0);
@@ -546,6 +550,7 @@ static int pipboyWindowInit(int intent)
         return -1;
     }
 
+    profile.mark("artwork");
     int pipboyWindowX = (screenGetWidth() - PIPBOY_WINDOW_WIDTH) / 2;
     int pipboyWindowY = (screenGetHeight() - PIPBOY_WINDOW_HEIGHT) / 2;
     gPipboyWindow = windowCreate(pipboyWindowX, pipboyWindowY, PIPBOY_WINDOW_WIDTH, PIPBOY_WINDOW_HEIGHT, _colorTable[0], WINDOW_MODAL);
@@ -692,13 +697,16 @@ static int pipboyWindowInit(int intent)
         windowRefresh(gPipboyWindow);
     }
 
+    profile.mark("window_and_buttons");
     if (questInit() == -1) {
         return -1;
     }
 
+    profile.mark("quests");
     soundPlayFile("pipon");
     windowRefresh(gPipboyWindow);
 
+    profile.finish();
     return intent;
 }
 
@@ -2427,7 +2435,8 @@ static int questInit()
     }
 
     char string[256];
-    while (fileReadString(string, 256, stream)) {
+    O3dsTextReader reader(stream);
+    while (reader.readLine(string, sizeof(string))) {
         const char* delim = " \t,";
         char* tok;
         QuestDescription entry;
@@ -2537,7 +2546,8 @@ static int holodiskInit()
     }
 
     char str[256];
-    while (fileReadString(str, sizeof(str), stream)) {
+    O3dsTextReader reader(stream);
+    while (reader.readLine(str, sizeof(str))) {
         const char* delim = " \t,";
         char* tok;
         HolodiskDescription entry;

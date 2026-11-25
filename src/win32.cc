@@ -68,7 +68,15 @@ int main(int argc, char* argv[])
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
 
     osSetSpeedupEnable(true);
-    chdir("sdmc:/3ds/fallout2/");
+chdir("sdmc:/3ds/fallout2/");
+
+// Prevent crashes when launched without arguments.
+if (argc <= 0 || argv == nullptr || argv[0] == nullptr) {
+    static char executableName[] = "fallout2";
+    static char* fallbackArgv[] = { executableName, nullptr };
+    argc = 1;
+    argv = fallbackArgv;
+}
 #else
 
     if (SDL_Init(SDL_INIT_AUDIO | SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0) {

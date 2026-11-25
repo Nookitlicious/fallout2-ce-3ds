@@ -16,6 +16,7 @@
 #include "game_sound.h"
 #include "graph_lib.h"
 #include "input.h"
+#include "o3ds_menu_profile.h"
 #include "item.h"
 #include "kb.h"
 #include "map.h"
@@ -297,6 +298,7 @@ int _automapDisplayMap(int map)
 // 0x41B8BC
 void automapShow(bool isInGame, bool isUsingScanner)
 {
+    O3dsMenuProfile profile("automap");
     ScopedGameMode gm(GameMode::kAutomap);
 
     int frmIds[AUTOMAP_FRM_COUNT];
@@ -310,6 +312,7 @@ void automapShow(bool isInGame, bool isUsingScanner)
         }
     }
 
+    profile.mark("artwork");
     int color;
     if (isInGame) {
         color = _colorTable[8456];
@@ -318,6 +321,7 @@ void automapShow(bool isInGame, bool isUsingScanner)
         color = _colorTable[22025];
     }
 
+    profile.mark("seen_objects");
     int oldFont = fontGetCurrent();
     fontSetCurrent(101);
 
@@ -392,11 +396,13 @@ void automapShow(bool isInGame, bool isUsingScanner)
         gAutomapFlags |= AUTOMAP_WITH_SCANNER;
     }
 
+    profile.mark("window_and_buttons");
     automapRenderInMapWindow(window, elevation, frmImages[AUTOMAP_FRM_BACKGROUND].getData(), gAutomapFlags);
 
     bool isoWasEnabled = isoDisable();
     gameMouseSetCursor(MOUSE_CURSOR_ARROW);
 
+    profile.finish();
     bool done = false;
     while (!done) {
         sharedFpsLimiter.mark();

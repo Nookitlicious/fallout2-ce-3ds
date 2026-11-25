@@ -29,6 +29,10 @@ bool fileFindFirst(const char* path, DirectoryFileFindData* findData)
     // Reassemble file name and extension to serve as a pattern. It has to be
     // lowercased because underlying `fpattern` implementation uses lowercased
     // char-by-char matching.
+    findData->dir = nullptr;
+    if (strlen(fname) + strlen(ext) >= sizeof(findData->pattern)) {
+        return false;
+    }
     compat_makepath(findData->pattern, nullptr, nullptr, fname, ext);
     compat_strlwr(findData->pattern);
 
@@ -44,6 +48,10 @@ bool fileFindFirst(const char* path, DirectoryFileFindData* findData)
     findData->entry = readdir(findData->dir);
     while (findData->entry != nullptr) {
         char entryName[COMPAT_MAX_FNAME];
+        if (strlen(fileFindGetName(findData)) >= sizeof(entryName)) {
+            findData->entry = readdir(findData->dir);
+            continue;
+        }
         strcpy(entryName, fileFindGetName(findData));
         compat_strlwr(entryName);
         if (fpattern_match(findData->pattern, entryName)) {
@@ -73,6 +81,10 @@ bool fileFindNext(DirectoryFileFindData* findData)
     findData->entry = readdir(findData->dir);
     while (findData->entry != nullptr) {
         char entryName[COMPAT_MAX_FNAME];
+        if (strlen(fileFindGetName(findData)) >= sizeof(entryName)) {
+            findData->entry = readdir(findData->dir);
+            continue;
+        }
         strcpy(entryName, fileFindGetName(findData));
         compat_strlwr(entryName);
         if (fpattern_match(findData->pattern, entryName)) {
@@ -94,11 +106,16 @@ bool fileFindNext(DirectoryFileFindData* findData)
 // 0x4E63CC
 bool findFindClose(DirectoryFileFindData* findData)
 {
-#if defined(_MSC_VER)
-    FindClose(findData->hFind);
+#if defined(_WIN32)
+    if (findData->hFind != INVALID_HANDLE_VALUE) {
+        FindClose(findData->hFind);
+        findData->hFind = INVALID_HANDLE_VALUE;
+    }
 #else
     if (findData->dir != nullptr) {
-        if (closedir(findData->dir) != 0) {
+        int result = closedir(findData->dir);
+        findData->dir = nullptr;
+        if (result != 0) {
             return false;
         }
     }

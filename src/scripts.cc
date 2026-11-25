@@ -1816,21 +1816,9 @@ static int scriptWrite(Script* scr, File* stream)
         break;
     }
 
-    if (fileWriteInt32(stream, scr->flags) == -1) return -1;
-    if (fileWriteInt32(stream, scr->index) == -1) return -1;
-    // NOTE: Original code writes `scr->program` pointer which is meaningless.
-    if (fileWriteInt32(stream, 0) == -1) return -1;
-    if (fileWriteInt32(stream, scr->ownerId) == -1) return -1;
-    if (fileWriteInt32(stream, scr->localVarsOffset) == -1) return -1;
-    if (fileWriteInt32(stream, scr->localVarsCount) == -1) return -1;
-    if (fileWriteInt32(stream, scr->returnValue) == -1) return -1;
-    if (fileWriteInt32(stream, scr->action) == -1) return -1;
-    if (fileWriteInt32(stream, scr->fixedParam) == -1) return -1;
-    if (fileWriteInt32(stream, scr->actionBeingUsed) == -1) return -1;
-    if (fileWriteInt32(stream, scr->scriptOverrides) == -1) return -1;
-    if (fileWriteInt32(stream, scr->field_48) == -1) return -1;
-    if (fileWriteInt32(stream, scr->howMuch) == -1) return -1;
-    if (fileWriteInt32(stream, scr->field_50) == -1) return -1;
+    // The serialized program pointer remains zero.
+    int words[] = { scr->flags, scr->index, 0, scr->ownerId, scr->localVarsOffset, scr->localVarsCount, scr->returnValue, scr->action, scr->fixedParam, scr->actionBeingUsed, scr->scriptOverrides, scr->field_48, scr->howMuch, scr->field_50 };
+    if (fileWriteInt32List(stream, words, 14) == -1) return -1;
 
     return 0;
 }
@@ -1955,8 +1943,6 @@ int scriptSaveAll(File* stream)
 // 0x4A5A1C
 static int scriptRead(Script* scr, File* stream)
 {
-    int prg;
-
     if (fileReadInt32(stream, &(scr->sid)) == -1) return -1;
     if (fileReadInt32(stream, &(scr->field_4)) == -1) return -1;
 
@@ -1970,20 +1956,21 @@ static int scriptRead(Script* scr, File* stream)
         break;
     }
 
-    if (fileReadInt32(stream, &(scr->flags)) == -1) return -1;
-    if (fileReadInt32(stream, &(scr->index)) == -1) return -1;
-    if (fileReadInt32(stream, &(prg)) == -1) return -1;
-    if (fileReadInt32(stream, &(scr->ownerId)) == -1) return -1;
-    if (fileReadInt32(stream, &(scr->localVarsOffset)) == -1) return -1;
-    if (fileReadInt32(stream, &(scr->localVarsCount)) == -1) return -1;
-    if (fileReadInt32(stream, &(scr->returnValue)) == -1) return -1;
-    if (fileReadInt32(stream, &(scr->action)) == -1) return -1;
-    if (fileReadInt32(stream, &(scr->fixedParam)) == -1) return -1;
-    if (fileReadInt32(stream, &(scr->actionBeingUsed)) == -1) return -1;
-    if (fileReadInt32(stream, &(scr->scriptOverrides)) == -1) return -1;
-    if (fileReadInt32(stream, &(scr->field_48)) == -1) return -1;
-    if (fileReadInt32(stream, &(scr->howMuch)) == -1) return -1;
-    if (fileReadInt32(stream, &(scr->field_50)) == -1) return -1;
+    int words[14];
+    if (fileReadInt32List(stream, words, 14) == -1) return -1;
+    scr->flags = words[0];
+    scr->index = words[1];
+    scr->ownerId = words[3];
+    scr->localVarsOffset = words[4];
+    scr->localVarsCount = words[5];
+    scr->returnValue = words[6];
+    scr->action = words[7];
+    scr->fixedParam = words[8];
+    scr->actionBeingUsed = words[9];
+    scr->scriptOverrides = words[10];
+    scr->field_48 = words[11];
+    scr->howMuch = words[12];
+    scr->field_50 = words[13];
 
     scr->program = nullptr;
     scr->owner = nullptr;

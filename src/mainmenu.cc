@@ -1,6 +1,7 @@
 #include "mainmenu.h"
 
 #include <ctype.h>
+#include <initializer_list>
 
 #include "art.h"
 #include "color.h"
@@ -17,6 +18,14 @@
 #include "text_font.h"
 #include "version.h"
 #include "window_manager.h"
+
+#ifdef __3DS__
+#include "memory.h"
+#include "debug.h"
+#include "settings.h"
+#include "platform/ctr/ctr_main_menu_layout.h"
+#include "platform/ctr/ctr_original_menu.h"
+#endif
 
 namespace fallout {
 
@@ -80,6 +89,12 @@ static bool gMainMenuWindowHidden;
 static FrmImage _mainMenuBackgroundFrmImage;
 static FrmImage _mainMenuButtonNormalFrmImage;
 static FrmImage _mainMenuButtonPressedFrmImage;
+#ifdef __3DS__
+// GNW borrows these images until the menu window is destroyed. Allocate
+// only while the menu exists, so gameplay has no extra buffer overhead.
+static unsigned char* gCtrMenuRows = nullptr;
+static_assert(MAIN_MENU_BUTTON_COUNT == ctr_menu::RowCount);
+#endif
 
 // 0x481650
 int mainMenuWindowInit()
@@ -109,15 +124,27 @@ int mainMenuWindowInit()
 
     gMainMenuWindowBuffer = windowGetBuffer(gMainMenuWindow);
 
-    // mainmenu.frm
-    int backgroundFid = buildFid(OBJ_TYPE_INTERFACE, 140, 0, 0, 0);
-    if (!_mainMenuBackgroundFrmImage.lock(backgroundFid)) {
-        // NOTE: Uninline.
-        return main_menu_fatal_error();
+    // v10.5: The stock left-side metal panels are required for the 3DS
+    // split layout. Bypass patch/localized art resolution for this asset only.
+    bool originalBackground = false;
+#ifdef __3DS__
+    originalBackground = ctr_menu::loadOriginalBackground(settings.system.master_dat_path.c_str(),
+        gMainMenuWindowBuffer, MAIN_MENU_WINDOW_WIDTH * MAIN_MENU_WINDOW_HEIGHT);
+    debugPrint("\n3DS main menu: %s\n", originalBackground ? "MASTER.DAT original artwork" : "normal art fallback");
+#endif
+    if (!originalBackground) {
+        // Preserve normal art loading if the original entry is unavailable.
+        int backgroundFid = buildFid(OBJ_TYPE_INTERFACE, 140, 0, 0, 0);
+        if (!_mainMenuBackgroundFrmImage.lock(backgroundFid)) {
+            return main_menu_fatal_error();
+        }
+        if (_mainMenuBackgroundFrmImage.getWidth() != 640 || _mainMenuBackgroundFrmImage.getHeight() != 480) {
+            _mainMenuBackgroundFrmImage.unlock();
+            return main_menu_fatal_error();
+        }
+        blitBufferToBuffer(_mainMenuBackgroundFrmImage.getData(), 640, 480, 640, gMainMenuWindowBuffer, 640);
+        _mainMenuBackgroundFrmImage.unlock();
     }
-
-    blitBufferToBuffer(_mainMenuBackgroundFrmImage.getData(), 640, 480, 640, gMainMenuWindowBuffer, 640);
-    _mainMenuBackgroundFrmImage.unlock();
 
     int oldFont = fontGetCurrent();
     fontSetCurrent(100);
@@ -172,6 +199,64 @@ int mainMenuWindowInit()
         gMainMenuButtons[index] = -1;
     }
 
+#ifdef __3DS__
+    // Fixed geometry matches the original plates and both screen mappings.
+    // Old ddraw.ini offsets cannot move these rows off their artwork.
+    using namespace ctr_menu;
+    constexpr int rowBytes = RowWidth * RowHeight;
+    gCtrMenuRows = static_cast<unsigned char*>(internal_malloc(RowCount * 2 * rowBytes));
+    if (gCtrMenuRows == nullptr
+        || _mainMenuButtonNormalFrmImage.getWidth() != LampSize
+        || _mainMenuButtonNormalFrmImage.getHeight() != LampSize
+        || _mainMenuButtonPressedFrmImage.getWidth() != LampSize
+        || _mainMenuButtonPressedFrmImage.getHeight() != LampSize) {
+        fontSetCurrent(oldFont);
+        return main_menu_fatal_error();
+    }
+
+    fontSettings = _colorTable[21091];
+    fontSettingsSFall = 0;
+    configGetInt(&gSfallConfig, SFALL_CONFIG_MISC_KEY, SFALL_CONFIG_MAIN_MENU_BIG_FONT_COLOR_KEY, &fontSettingsSFall);
+    if (fontSettingsSFall)
+        fontSettings = fontSettingsSFall & 0xFF;
+
+    for (int index = 0; index < MAIN_MENU_BUTTON_COUNT; ++index) {
+        unsigned char* normal = gCtrMenuRows + index * 2 * rowBytes;
+        unsigned char* pressed = normal + rowBytes;
+        unsigned char* source = gMainMenuWindowBuffer + rowY(index) * MAIN_MENU_WINDOW_WIDTH + RowX;
+        blitBufferToBuffer(source, RowWidth, RowHeight, MAIN_MENU_WINDOW_WIDTH, normal, RowWidth);
+        msg.num = 9 + index;
+        if (messageListGetItem(&gMiscMessageList, &msg) && msg.text != nullptr) {
+            // Prefer original large lettering, with smaller interface fonts
+            // as a fallback for long/localized labels.
+            for (int font : {104, 103, 102, 101, 100, 0}) {
+                fontSetCurrent(font);
+                len = fontGetStringWidth(msg.text);
+                int h = fontGetLineHeight();
+                if (h <= 0 || h > RowHeight - 2 || len <= 0 || len > LabelRight - LabelLeft)
+                    continue;
+                int x = LabelLeft + (LabelRight - LabelLeft - len) / 2;
+                int y = (RowHeight - h) / 2;
+                fontDrawText(normal + y * RowWidth + x, msg.text, LabelRight - x, RowWidth, fontSettings);
+                break;
+            }
+        }
+        blitBufferToBuffer(normal, RowWidth, RowHeight, RowWidth, pressed, RowWidth);
+        blitBufferToBufferTrans(_mainMenuButtonNormalFrmImage.getData(), LampSize, LampSize, LampSize,
+            normal + LampY * RowWidth + LampX, RowWidth);
+        blitBufferToBufferTrans(_mainMenuButtonPressedFrmImage.getData(), LampSize, LampSize, LampSize,
+            pressed + LampY * RowWidth + LampX, RowWidth);
+
+        // The whole metal plate (not just the tiny red lamp) is tappable.
+        gMainMenuButtons[index] = buttonCreate(gMainMenuWindow,
+            RowX, rowY(index), RowWidth, RowHeight, -1, -1, 1111,
+            gMainMenuButtonKeyBindings[index], normal, pressed, nullptr, 0);
+        if (gMainMenuButtons[index] == -1) {
+            fontSetCurrent(oldFont);
+            return main_menu_fatal_error();
+        }
+    }
+#else
     // SFALL: Allow to move menu buttons
     offsetX = offsetY = 0;
     configGetInt(&gSfallConfig, SFALL_CONFIG_MISC_KEY, SFALL_CONFIG_MAIN_MENU_OFFSET_X_KEY, &offsetX);
@@ -210,11 +295,13 @@ int mainMenuWindowInit()
 
     for (int index = 0; index < MAIN_MENU_BUTTON_COUNT; index++) {
         msg.num = 9 + index;
-        if (messageListGetItem(&gMiscMessageList, &msg)) {
+        if (messageListGetItem(&gMiscMessageList, &msg) && msg.text != nullptr) {
             len = fontGetStringWidth(msg.text);
             fontDrawText(gMainMenuWindowBuffer + offsetX + 640 * (offsetY + 42 * index - index + 20) + 126 - (len / 2), msg.text, 640 - (126 - (len / 2)) - 1, 640, fontSettings);
         }
     }
+
+#endif
 
     fontSetCurrent(oldFont);
 
@@ -227,24 +314,30 @@ int mainMenuWindowInit()
 // 0x481968
 void mainMenuWindowFree()
 {
-    if (!gMainMenuWindowInitialized) {
+    if (!gMainMenuWindowInitialized && gMainMenuWindow == -1) {
         return;
     }
 
     for (int index = 0; index < MAIN_MENU_BUTTON_COUNT; index++) {
-        // FIXME: Why it tries to free only invalid buttons?
-        if (gMainMenuButtons[index] == -1) {
-            buttonDestroy(gMainMenuButtons[index]);
-        }
+        // The window owns its buttons and destroys them in windowDestroy.
+        gMainMenuButtons[index] = -1;
     }
-
-    _mainMenuButtonPressedFrmImage.unlock();
-    _mainMenuButtonNormalFrmImage.unlock();
 
     if (gMainMenuWindow != -1) {
         windowDestroy(gMainMenuWindow);
+        gMainMenuWindow = -1;
     }
 
+#ifdef __3DS__
+    if (gCtrMenuRows != nullptr) {
+        internal_free(gCtrMenuRows);
+        gCtrMenuRows = nullptr;
+    }
+#endif
+    _mainMenuButtonPressedFrmImage.unlock();
+    _mainMenuButtonNormalFrmImage.unlock();
+
+    gMainMenuWindowBuffer = nullptr;
     gMainMenuWindowInitialized = false;
 }
 
@@ -304,6 +397,14 @@ int mainMenuWindowHandleEvents()
     _in_main_menu = true;
 
     bool oldCursorIsHidden = cursorIsHidden();
+#ifdef __3DS__
+    // Keep the initial cursor off the helmet. Touch input moves it normally.
+    mouseHideCursor();
+    _mouse_set_position(ctr_menu::RowX + ctr_menu::RowWidth / 2, ctr_menu::rowY(0) + ctr_menu::RowHeight / 2);
+    if (!oldCursorIsHidden) {
+        mouseShowCursor();
+    }
+#endif
     if (oldCursorIsHidden) {
         mouseShowCursor();
     }

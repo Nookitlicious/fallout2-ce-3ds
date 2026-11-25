@@ -1,6 +1,7 @@
 #include "object.h"
 
 #include <assert.h>
+#include <stdint.h>
 #include <string.h>
 
 #include <algorithm>
@@ -8,6 +9,8 @@
 #include "animation.h"
 #include "art.h"
 #include "color.h"
+#include "o3ds_lighting.h"
+#include "o3ds_v9_options.h"
 #include "combat.h"
 #include "critter.h"
 #include "debug.h"
@@ -411,26 +414,26 @@ void objectsExit()
 // 0x488AF4
 int objectRead(Object* obj, File* stream)
 {
-    int field_74;
-
-    if (fileReadInt32(stream, &(obj->id)) == -1) return -1;
-    if (fileReadInt32(stream, &(obj->tile)) == -1) return -1;
-    if (fileReadInt32(stream, &(obj->x)) == -1) return -1;
-    if (fileReadInt32(stream, &(obj->y)) == -1) return -1;
-    if (fileReadInt32(stream, &(obj->sx)) == -1) return -1;
-    if (fileReadInt32(stream, &(obj->sy)) == -1) return -1;
-    if (fileReadInt32(stream, &(obj->frame)) == -1) return -1;
-    if (fileReadInt32(stream, &(obj->rotation)) == -1) return -1;
-    if (fileReadInt32(stream, &(obj->fid)) == -1) return -1;
-    if (fileReadInt32(stream, &(obj->flags)) == -1) return -1;
-    if (fileReadInt32(stream, &(obj->elevation)) == -1) return -1;
-    if (fileReadInt32(stream, &(obj->pid)) == -1) return -1;
-    if (fileReadInt32(stream, &(obj->cid)) == -1) return -1;
-    if (fileReadInt32(stream, &(obj->lightDistance)) == -1) return -1;
-    if (fileReadInt32(stream, &(obj->lightIntensity)) == -1) return -1;
-    if (fileReadInt32(stream, &field_74) == -1) return -1;
-    if (fileReadInt32(stream, &(obj->sid)) == -1) return -1;
-    if (fileReadInt32(stream, &(obj->scriptIndex)) == -1) return -1;
+    // Map/save record layout is 18 big-endian words, not sizeof(Object).
+    int words[18];
+    if (fileReadInt32List(stream, words, 18) == -1) return -1;
+    obj->id = words[0];
+    obj->tile = words[1];
+    obj->x = words[2];
+    obj->y = words[3];
+    obj->sx = words[4];
+    obj->sy = words[5];
+    obj->frame = words[6];
+    obj->rotation = words[7];
+    obj->fid = words[8];
+    obj->flags = words[9];
+    obj->elevation = words[10];
+    obj->pid = words[11];
+    obj->cid = words[12];
+    obj->lightDistance = words[13];
+    obj->lightIntensity = words[14];
+    obj->sid = words[16];
+    obj->scriptIndex = words[17];
 
     obj->outline = 0;
     obj->owner = nullptr;
@@ -482,26 +485,26 @@ static int objectLoadAllInternal(File* stream)
     gViolenceLevel = settings.preferences.violence_level;
 
     int objectCount;
-    if (fileReadInt32(stream, &objectCount) == -1) {
+    if (fileReadInt32(stream, &objectCount) == -1 || objectCount < 0
+        || static_cast<size_t>(objectCount) > SIZE_MAX / sizeof(*gObjectFids)) {
         return -1;
     }
 
-    if (gObjectFids != nullptr) {
-        internal_free(gObjectFids);
-    }
+    internal_free(gObjectFids);
+    gObjectFids = nullptr;
+    gObjectFidsLength = 0;
 
     if (objectCount != 0) {
         gObjectFids = (int*)internal_malloc(sizeof(*gObjectFids) * objectCount);
-        memset(gObjectFids, 0, sizeof(*gObjectFids) * objectCount);
         if (gObjectFids == nullptr) {
             return -1;
         }
-        gObjectFidsLength = 0;
     }
 
     for (int elevation = 0; elevation < ELEVATION_COUNT; elevation++) {
         int objectCountAtElevation;
-        if (fileReadInt32(stream, &objectCountAtElevation) == -1) {
+        if (fileReadInt32(stream, &objectCountAtElevation) == -1
+            || objectCountAtElevation < 0 || objectCountAtElevation > objectCount - gObjectFidsLength) {
             return -1;
         }
 
@@ -644,24 +647,8 @@ static void _object_fix_weapon_ammo(Object* obj)
 // 0x489200
 static int objectWrite(Object* obj, File* stream)
 {
-    if (fileWriteInt32(stream, obj->id) == -1) return -1;
-    if (fileWriteInt32(stream, obj->tile) == -1) return -1;
-    if (fileWriteInt32(stream, obj->x) == -1) return -1;
-    if (fileWriteInt32(stream, obj->y) == -1) return -1;
-    if (fileWriteInt32(stream, obj->sx) == -1) return -1;
-    if (fileWriteInt32(stream, obj->sy) == -1) return -1;
-    if (fileWriteInt32(stream, obj->frame) == -1) return -1;
-    if (fileWriteInt32(stream, obj->rotation) == -1) return -1;
-    if (fileWriteInt32(stream, obj->fid) == -1) return -1;
-    if (fileWriteInt32(stream, obj->flags) == -1) return -1;
-    if (fileWriteInt32(stream, obj->elevation) == -1) return -1;
-    if (fileWriteInt32(stream, obj->pid) == -1) return -1;
-    if (fileWriteInt32(stream, obj->cid) == -1) return -1;
-    if (fileWriteInt32(stream, obj->lightDistance) == -1) return -1;
-    if (fileWriteInt32(stream, obj->lightIntensity) == -1) return -1;
-    if (fileWriteInt32(stream, obj->outline) == -1) return -1;
-    if (fileWriteInt32(stream, obj->sid) == -1) return -1;
-    if (fileWriteInt32(stream, obj->scriptIndex) == -1) return -1;
+    int words[] = { obj->id, obj->tile, obj->x, obj->y, obj->sx, obj->sy, obj->frame, obj->rotation, obj->fid, obj->flags, obj->elevation, obj->pid, obj->cid, obj->lightDistance, obj->lightIntensity, obj->outline, obj->sid, obj->scriptIndex };
+    if (fileWriteInt32List(stream, words, 18) == -1) return -1;
     if (objectDataWrite(obj, stream) == -1) return -1;
 
     return 0;
@@ -2762,6 +2749,15 @@ void _dark_trans_buf_to_buf(unsigned char* src, int srcWidth, int srcHeight, int
     int srcStep = srcPitch - srcWidth;
     int destStep = destPitch - srcWidth;
     int intensityIndex = intensity / 512;
+#ifdef __3DS__
+    if (o3dsV9FastRender()) {
+        const unsigned char* shade = o3dsLightRow(intensityIndex);
+        if (shade != nullptr) {
+            o3dsLightBlit(sp, srcWidth, srcHeight, srcPitch, dp, destPitch, shade);
+            return;
+        }
+    }
+#endif
 
     for (int y = 0; y < srcHeight; y++) {
         for (int x = 0; x < srcWidth; x++) {
@@ -3139,7 +3135,10 @@ char* objectGetDescription(Object* obj)
 // 0x48C938
 void _obj_preload_art_cache(int flags)
 {
-    if (gObjectFids == nullptr) {
+    if (gObjectFids == nullptr || gObjectFidsLength <= 0) {
+        internal_free(gObjectFids);
+        gObjectFids = nullptr;
+        gObjectFidsLength = 0;
         return;
     }
 
@@ -3173,25 +3172,13 @@ void _obj_preload_art_cache(int flags)
     qsort(gObjectFids, gObjectFidsLength, sizeof(*gObjectFids), _obj_preload_sort);
 
     int v11 = gObjectFidsLength;
-    int v12 = gObjectFidsLength;
-
-    if (FID_TYPE(gObjectFids[v12 - 1]) == OBJ_TYPE_WALL) {
-        int objectType = OBJ_TYPE_ITEM;
-        do {
-            v11--;
-            objectType = FID_TYPE(gObjectFids[v12 - 1]);
-            v12--;
-        } while (objectType == OBJ_TYPE_WALL);
-        v11++;
+    while (v11 > 0 && (FID_TYPE(gObjectFids[v11 - 1])) == OBJ_TYPE_WALL) {
+        --v11;
     }
 
     CacheEntry* cache_handle;
-    if (artLock(*gObjectFids, &cache_handle) != nullptr) {
-        artUnlock(cache_handle);
-    }
-
-    for (int i = 1; i < v11; i++) {
-        if (gObjectFids[i - 1] != gObjectFids[i]) {
+    for (int i = 0; i < v11; i++) {
+        if (i == 0 || gObjectFids[i - 1] != gObjectFids[i]) {
             if (artLock(gObjectFids[i], &cache_handle) != nullptr) {
                 artUnlock(cache_handle);
             }
@@ -3208,7 +3195,7 @@ void _obj_preload_art_cache(int flags)
     }
 
     for (int i = v11; i < gObjectFidsLength; i++) {
-        if (gObjectFids[i - 1] != gObjectFids[i]) {
+        if (i == 0 || gObjectFids[i - 1] != gObjectFids[i]) {
             if (artLock(gObjectFids[i], &cache_handle) != nullptr) {
                 artUnlock(cache_handle);
             }
@@ -5145,8 +5132,10 @@ static int _obj_preload_sort(const void* a1, const void* a2)
     int v1 = *(int*)a1;
     int v2 = *(int*)a2;
 
-    int v3 = _cd_order[FID_TYPE(v1)];
-    int v4 = _cd_order[FID_TYPE(v2)];
+    unsigned int type1 = FID_TYPE(v1);
+    unsigned int type2 = FID_TYPE(v2);
+    int v3 = type1 < sizeof(_cd_order) / sizeof(_cd_order[0]) ? _cd_order[type1] : -1;
+    int v4 = type2 < sizeof(_cd_order) / sizeof(_cd_order[0]) ? _cd_order[type2] : -1;
 
     int cmp = v3 - v4;
     if (cmp != 0) {

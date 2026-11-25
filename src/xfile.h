@@ -50,6 +50,8 @@ typedef struct XList {
 
 int xfileClose(XFile* stream);
 XFile* xfileOpen(const char* filename, const char* mode);
+// Read a single entry from an already-open archive without changing search priority.
+DFile* xfileOpenArchiveEntry(const char* archivePath, const char* entryPath);
 int xfilePrintFormatted(XFile* xfile, const char* format, ...);
 int xfilePrintFormattedArgs(XFile* stream, const char* format, va_list args);
 int xfileReadChar(XFile* stream);
@@ -65,6 +67,8 @@ int xfileEof(XFile* stream);
 long xfileGetSize(XFile* stream);
 bool xbaseReopenAll(char* paths);
 bool xbaseOpen(const char* path);
+// True only when the first writable directory is also the first possible read source.
+bool xfilePrimaryLoosePath(const char* relativePath, const char* directory);
 bool xlistInit(const char* pattern, XList* xlist);
 void xlistFree(XList* xlist);
 

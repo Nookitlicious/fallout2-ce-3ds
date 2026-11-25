@@ -1476,7 +1476,7 @@ void _windowClose()
 // 0x4B9548
 bool _windowDeleteButton(const char* buttonName)
 {
-    if (gCurrentManagedWindowIndex != -1) {
+    if (gCurrentManagedWindowIndex < 0 || gCurrentManagedWindowIndex >= MANAGED_WINDOW_COUNT) {
         return false;
     }
 
@@ -1572,7 +1572,7 @@ bool _windowDeleteButton(const char* buttonName)
 // 0x4B9928
 bool _windowSetButtonFlag(const char* buttonName, int value)
 {
-    if (gCurrentManagedWindowIndex != -1) {
+    if (gCurrentManagedWindowIndex < 0 || gCurrentManagedWindowIndex >= MANAGED_WINDOW_COUNT) {
         return false;
     }
 
@@ -1788,7 +1788,7 @@ bool _windowAddButtonProc(const char* buttonName, Program* program, int mouseEnt
 // 0x4BA1B4
 bool _windowAddButtonRightProc(const char* buttonName, Program* program, int rightMouseDownProc, int rightMouseUpProc)
 {
-    if (gCurrentManagedWindowIndex != -1) {
+    if (gCurrentManagedWindowIndex < 0 || gCurrentManagedWindowIndex >= MANAGED_WINDOW_COUNT) {
         return false;
     }
 
@@ -1815,7 +1815,7 @@ bool _windowAddButtonRightProc(const char* buttonName, Program* program, int rig
 // 0x4BA238
 bool _windowAddButtonCfunc(const char* buttonName, ManagedButtonMouseEventCallback* callback, void* userData)
 {
-    if (gCurrentManagedWindowIndex != -1) {
+    if (gCurrentManagedWindowIndex < 0 || gCurrentManagedWindowIndex >= MANAGED_WINDOW_COUNT) {
         return false;
     }
 
@@ -1841,7 +1841,7 @@ bool _windowAddButtonCfunc(const char* buttonName, ManagedButtonMouseEventCallba
 // 0x4BA2B4
 bool _windowAddButtonRightCfunc(const char* buttonName, ManagedButtonMouseEventCallback* callback, void* userData)
 {
-    if (gCurrentManagedWindowIndex != -1) {
+    if (gCurrentManagedWindowIndex < 0 || gCurrentManagedWindowIndex >= MANAGED_WINDOW_COUNT) {
         return false;
     }
 

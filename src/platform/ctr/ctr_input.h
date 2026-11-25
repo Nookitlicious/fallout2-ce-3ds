@@ -48,7 +48,8 @@ void ctr_input_process(void);
 int ctr_input_frame(void);
 
 void ctr_input_swkdb_init(void);
-int ctr_input_swkbd(const char *hintText, const char *inText, char *outText);
+// Edits a field in place only on confirmation. Capacity must be maxLength + 1.
+bool ctr_input_edit_text(const char* hintText, char* text, int maxLength, bool allowEmpty, bool dosFilename);
 
 bool ctr_input_key_pressed(void);
 
