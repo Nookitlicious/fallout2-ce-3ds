@@ -393,7 +393,10 @@ FodyWeavers.xsd
 /build
 CMakeUserPresets.json
 
-# 3DS
+# # 3DS generated build files
 *.elf
 *.3dsx
 *.cia
+*.o
+*.dmp
+/romfs/gfx/*.t3x

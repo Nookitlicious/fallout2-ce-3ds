@@ -10,6 +10,9 @@
 #include "platform_compat.h"
 #include "scripts.h"
 #include "sfall_config.h"
+#ifdef __3DS__
+#include "platform/ctr/ctr_mod_profiles.h"
+#endif
 
 namespace fallout {
 
@@ -36,7 +39,7 @@ bool sfall_gl_scr_init()
         return false;
     }
 
-    char* paths;
+    char* paths = nullptr;
     configGetString(&gSfallConfig, SFALL_CONFIG_SCRIPTS_KEY, SFALL_CONFIG_GLOBAL_SCRIPT_PATHS, &paths);
 
     char* curr = paths;
@@ -46,18 +49,17 @@ bool sfall_gl_scr_init()
             *end = '\0';
         }
 
-        char drive[COMPAT_MAX_DRIVE];
-        char dir[COMPAT_MAX_DIR];
-        compat_splitpath(curr, drive, dir, nullptr, nullptr);
+        // Sfall INI patterns use Windows separators even on 3DS.
+        std::string pattern(curr);
+        std::replace(pattern.begin(), pattern.end(), '\\', '/');
+        const auto slash = pattern.find_last_of('/');
+        const std::string prefix = slash == std::string::npos ? "" : pattern.substr(0, slash + 1);
 
         char** files;
-        int filesLength = fileNameListInit(curr, &files, 0, 0);
+        int filesLength = fileNameListInit(pattern.c_str(), &files, 0, 0);
         if (filesLength != 0) {
             for (int index = 0; index < filesLength; index++) {
-                char path[COMPAT_MAX_PATH];
-                compat_makepath(path, drive, dir, files[index], nullptr);
-
-                state->paths.push_back(std::string { path });
+                state->paths.push_back(prefix + files[index]);
             }
 
             fileNameListFree(&files, 0);
@@ -72,6 +74,7 @@ bool sfall_gl_scr_init()
     }
 
     std::sort(state->paths.begin(), state->paths.end());
+    state->paths.erase(std::unique(state->paths.begin(), state->paths.end()), state->paths.end());
 
     return true;
 }
@@ -96,7 +99,17 @@ void sfall_gl_scr_exit()
 void sfall_gl_scr_exec_start_proc()
 {
     for (auto& path : state->paths) {
-        Program* program = programCreateByPath(path.c_str());
+#ifdef __3DS__
+        if (ctrModProfileActive()) {
+            ctrModProfileStage(("Loading global script: " + path).c_str());
+        }
+#endif
+        Program* program = programCreateByPath(path.c_str(), false);
+#ifdef __3DS__
+        if (ctrModProfileActive()) {
+            ctrModProfileStage(((program ? "Loaded global script: " : "ERROR: global script not loaded: ") + path).c_str());
+        }
+#endif
         if (program != nullptr) {
             GlobalScript scr;
             scr.program = program;

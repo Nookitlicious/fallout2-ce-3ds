@@ -10,6 +10,7 @@
 
 #include "debug.h"
 #include "memory.h"
+#include "o3ds_text_reader.h"
 #include "platform_compat.h"
 #include "proto_types.h"
 #include "random.h"
@@ -43,7 +44,7 @@ struct MessageListRepositoryState {
 static bool _message_find(MessageList* msg, int num, int* out_index);
 static bool _message_add(MessageList* msg, MessageListItem* new_entry);
 static bool _message_parse_number(int* out_num, const char* str);
-static int _message_load_field(File* file, char* str);
+static int _message_load_field(O3dsTextReader& reader, char* str);
 
 static MessageList* messageListRepositoryLoad(const char* path);
 
@@ -239,22 +240,23 @@ bool messageListLoad(MessageList* messageList, const char* path)
         return false;
     }
 
+    O3dsTextReader reader(file_ptr);
     entry.num = 0;
     entry.audio = audio;
     entry.text = text;
 
     while (1) {
-        rc = _message_load_field(file_ptr, num);
+        rc = _message_load_field(reader, num);
         if (rc != 0) {
             break;
         }
 
-        if (_message_load_field(file_ptr, audio) != 0) {
+        if (_message_load_field(reader, audio) != 0) {
             debugPrint("\nError loading audio field.\n", localized_path);
             goto err;
         }
 
-        if (_message_load_field(file_ptr, text) != 0) {
+        if (_message_load_field(reader, text) != 0) {
             debugPrint("\nError loading text field.\n", localized_path);
             goto err;
         }
@@ -336,99 +338,61 @@ bool _message_make_path(char* dest, size_t size, const char* path)
 // 0x484D10
 static bool _message_find(MessageList* msg, int num, int* out_index)
 {
-    int r, l, mid;
-    int cmp;
-
-    if (msg->entries_num == 0) {
-        *out_index = 0;
-        return false;
-    }
-
-    r = msg->entries_num - 1;
-    l = 0;
-
-    do {
-        mid = (l + r) / 2;
-        cmp = num - msg->entries[mid].num;
-        if (cmp == 0) {
-            *out_index = mid;
-            return true;
-        }
-
-        if (cmp > 0) {
-            l = l + 1;
+    int lo = 0;
+    int hi = msg->entries_num;
+    while (lo < hi) {
+        int mid = lo + (hi - lo) / 2;
+        if (msg->entries[mid].num < num) {
+            lo = mid + 1;
         } else {
-            r = r - 1;
+            hi = mid;
         }
-    } while (r >= l);
-
-    if (cmp < 0) {
-        *out_index = mid;
-    } else {
-        *out_index = mid + 1;
     }
-
-    return false;
+    *out_index = lo;
+    return lo < msg->entries_num && msg->entries[lo].num == num;
 }
 
 // 0x484D68
 static bool _message_add(MessageList* msg, MessageListItem* new_entry)
 {
     int index;
-    MessageListItem* entries;
-    MessageListItem* existing_entry;
+    bool found = _message_find(msg, new_entry->num, &index);
 
-    if (_message_find(msg, new_entry->num, &index)) {
-        existing_entry = &(msg->entries[index]);
+    // Allocate both strings first: failure must leave the old list intact.
+    char* audio = internal_strdup(new_entry->audio);
+    if (audio == nullptr) {
+        return false;
+    }
+    char* text = internal_strdup(new_entry->text);
+    if (text == nullptr) {
+        internal_free(audio);
+        return false;
+    }
 
-        if (existing_entry->audio != nullptr) {
-            internal_free(existing_entry->audio);
+    if (!found) {
+        MessageListItem* entries = (MessageListItem*)internal_realloc(msg->entries,
+            sizeof(MessageListItem) * (static_cast<size_t>(msg->entries_num) + 1));
+        if (entries == nullptr) {
+            internal_free(audio);
+            internal_free(text);
+            return false;
         }
-
-        if (existing_entry->text != nullptr) {
-            internal_free(existing_entry->text);
+        msg->entries = entries;
+        if (index < msg->entries_num) {
+            memmove(&entries[index + 1], &entries[index],
+                sizeof(MessageListItem) * (msg->entries_num - index));
         }
-    } else {
-        if (msg->entries != nullptr) {
-            entries = (MessageListItem*)internal_realloc(msg->entries, sizeof(MessageListItem) * (msg->entries_num + 1));
-            if (entries == nullptr) {
-                return false;
-            }
-
-            msg->entries = entries;
-
-            if (index != msg->entries_num) {
-                // Move all items below insertion point
-                memmove(&(msg->entries[index + 1]), &(msg->entries[index]), sizeof(MessageListItem) * (msg->entries_num - index));
-            }
-        } else {
-            msg->entries = (MessageListItem*)internal_malloc(sizeof(MessageListItem));
-            if (msg->entries == nullptr) {
-                return false;
-            }
-            msg->entries_num = 0;
-            index = 0;
-        }
-
-        existing_entry = &(msg->entries[index]);
-        existing_entry->flags = 0;
-        existing_entry->audio = nullptr;
-        existing_entry->text = nullptr;
+        entries[index] = {};
         msg->entries_num++;
+    } else {
+        internal_free(msg->entries[index].audio);
+        internal_free(msg->entries[index].text);
     }
 
-    existing_entry->audio = internal_strdup(new_entry->audio);
-    if (existing_entry->audio == nullptr) {
-        return false;
-    }
-
-    existing_entry->text = internal_strdup(new_entry->text);
-    if (existing_entry->text == nullptr) {
-        return false;
-    }
-
-    existing_entry->num = new_entry->num;
-
+    MessageListItem* entry = &msg->entries[index];
+    entry->num = new_entry->num;
+    entry->audio = audio;
+    entry->text = text;
     return true;
 }
 
@@ -471,7 +435,7 @@ static bool _message_parse_number(int* out_num, const char* str)
 // 4 - limit exceeded (> `MESSAGE_LIST_ITEM_FIELD_MAX_SIZE`)
 //
 // 0x484FB4
-static int _message_load_field(File* file, char* str)
+static int _message_load_field(O3dsTextReader& reader, char* str)
 {
     int ch;
     int len;
@@ -479,7 +443,7 @@ static int _message_load_field(File* file, char* str)
     len = 0;
 
     while (1) {
-        ch = fileReadChar(file);
+        ch = reader.readChar();
         if (ch == -1) {
             return 1;
         }
@@ -495,7 +459,7 @@ static int _message_load_field(File* file, char* str)
     }
 
     while (1) {
-        ch = fileReadChar(file);
+        ch = reader.readChar();
 
         if (ch == -1) {
             debugPrint("\nError reading message file - EOF reached.\n");

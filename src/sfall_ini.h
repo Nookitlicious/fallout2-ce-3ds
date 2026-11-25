@@ -2,6 +2,7 @@
 #define FALLOUT_SFALL_INI_H_
 
 #include <cstddef>
+#include "sfall_arrays.h"
 
 namespace fallout {
 
@@ -13,6 +14,12 @@ bool sfall_ini_get_int(const char* triplet, int* value);
 
 /// Reads string key identified by "fileName|section|key" triplet into `value`.
 bool sfall_ini_get_string(const char* triplet, char* value, size_t size);
+
+/// Returns a temporary associative array of string keys/values, or an empty map.
+ArrayId sfall_ini_get_section(Program* program, const char* fileName, const char* section);
+
+/// Returns a temporary list of section names, or an empty list.
+ArrayId sfall_ini_get_sections(Program* program, const char* fileName);
 
 /// Writes integer key identified by "fileName|section|key" triplet.
 bool sfall_ini_set_int(const char* triplet, int value);

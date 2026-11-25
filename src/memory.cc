@@ -1,6 +1,7 @@
 #include "memory.h"
 
 #include <stdio.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -62,7 +63,9 @@ char* internal_strdup(const char* string)
     char* copy = nullptr;
     if (string != nullptr) {
         copy = (char*)gMallocProc(strlen(string) + 1);
-        strcpy(copy, string);
+        if (copy != nullptr) {
+            strcpy(copy, string);
+        }
     }
     return copy;
 }
@@ -77,6 +80,10 @@ void* internal_malloc(size_t size)
 static void* memoryBlockMallocImpl(size_t size)
 {
     void* ptr = nullptr;
+
+    if (size > SIZE_MAX - sizeof(MemoryBlockHeader) - sizeof(MemoryBlockFooter) - sizeof(int)) {
+        return nullptr;
+    }
 
     if (size != 0) {
         size += sizeof(MemoryBlockHeader) + sizeof(MemoryBlockFooter);
@@ -111,15 +118,23 @@ void* internal_realloc(void* ptr, size_t size)
 // 0x4C5B58
 static void* memoryBlockReallocImpl(void* ptr, size_t size)
 {
+    if (size > SIZE_MAX - sizeof(MemoryBlockHeader) - sizeof(MemoryBlockFooter) - sizeof(int)) {
+        return nullptr;
+    }
+
     if (ptr != nullptr) {
         unsigned char* block = (unsigned char*)ptr - sizeof(MemoryBlockHeader);
 
         MemoryBlockHeader* header = (MemoryBlockHeader*)block;
+        memoryBlockValidate(block);
         size_t oldSize = header->size;
 
-        gMemoryBlocksCurrentSize -= oldSize;
+        if (size == 0) {
+            memoryBlockFreeImpl(ptr);
+            return nullptr;
+        }
 
-        memoryBlockValidate(block);
+        gMemoryBlocksCurrentSize -= oldSize;
 
         if (size != 0) {
             size += sizeof(MemoryBlockHeader) + sizeof(MemoryBlockFooter);
@@ -210,13 +225,17 @@ static void* mem_prep_block(void* block, size_t size)
 static void memoryBlockValidate(void* block)
 {
     MemoryBlockHeader* header = (MemoryBlockHeader*)block;
-    if (header->guard != MEMORY_BLOCK_HEADER_GUARD) {
+    if (header->guard != MEMORY_BLOCK_HEADER_GUARD
+        || header->size < sizeof(MemoryBlockHeader) + sizeof(MemoryBlockFooter)
+        || header->size % sizeof(int) != 0) {
         debugPrint("Memory header stomped.\n");
+        __builtin_trap();
     }
 
     MemoryBlockFooter* footer = (MemoryBlockFooter*)((unsigned char*)block + header->size - sizeof(MemoryBlockFooter));
     if (footer->guard != MEMORY_BLOCK_FOOTER_GUARD) {
         debugPrint("Memory footer stomped.\n");
+        __builtin_trap();
     }
 }
 

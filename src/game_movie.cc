@@ -195,6 +195,7 @@ int gameMoviePlay(int movie, int flags)
     }
 
 #ifdef __3DS__
+    const rectMap_e previousMovieLayout = ctr_rectMap.main;
     setActiveRectMap(DISPLAY_MOVIE);
 #endif
 
@@ -313,7 +314,7 @@ int gameMoviePlay(int movie, int flags)
         backgroundSoundResume();
     }
 #ifdef __3DS__
-    setActiveRectMap(DISPLAY_FULL);
+    setActiveRectMap(previousMovieLayout);
 #endif
     if ((flags & GAME_MOVIE_FADE_OUT) != 0) {
         if (!subtitlesEnabled) {

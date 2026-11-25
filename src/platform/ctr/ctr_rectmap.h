@@ -54,6 +54,9 @@ typedef enum {
     DISPLAY_ENDGAME,
     DISPLAY_DYNAMIC,
     DISPLAY_DEAD,
+    DISPLAY_MODS,
+    DISPLAY_AUTOMAP,
+    DISPLAY_SAVE_COMMENT,
     DISPLAY_LAST
 } rectMap_e;
 
@@ -78,7 +81,10 @@ void setRectMapPos(rectMap_e rectmap, float x, float y, float w, float h, bool i
 
 int setRectMapScaled(bool scaled_rect_top, float rawScaleFactor);
 
+// Only gameplay can opt into the manual full-frame view. Menus keep their own layouts.
+inline bool isGameplayRectMap(rectMap_e map) { return map == DISPLAY_GUI || map == DISPLAY_FIELD; }
 void setActiveRectMap(rectMap_e rectmap);
+void restoreGameplayRectMap(rectMap_e previous);
 void setPreviousRectMap(int index);
 rectMap_e getPreviousRectMap(int index);
 

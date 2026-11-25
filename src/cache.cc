@@ -52,6 +52,7 @@ bool cacheInit(Cache* cache, CacheSizeProc* sizeProc, CacheReadProc* readProc, C
     cache->freeProc = freeProc;
 
     if (cache->entries == nullptr) {
+        heapFree(&cache->heap);
         return false;
     }
 
@@ -335,40 +336,18 @@ static bool cacheInsertEntryAtIndex(Cache* cache, CacheEntry* cacheEntry, int in
 // 0x420654
 static int cacheFindIndexForKey(Cache* cache, int key, int* indexPtr)
 {
-    int length = cache->entriesLength;
-    if (length == 0) {
-        *indexPtr = 0;
-        return 3;
-    }
-
-    int r = length - 1;
-    int l = 0;
-    int mid;
-    int cmp;
-
-    do {
-        mid = (l + r) / 2;
-
-        cmp = key - cache->entries[mid]->key;
-        if (cmp == 0) {
-            *indexPtr = mid;
-            return 2;
-        }
-
-        if (cmp > 0) {
-            l = l + 1;
+    int lo = 0;
+    int hi = cache->entriesLength;
+    while (lo < hi) {
+        int mid = lo + (hi - lo) / 2;
+        if (cache->entries[mid]->key < key) {
+            lo = mid + 1;
         } else {
-            r = r - 1;
+            hi = mid;
         }
-    } while (r >= l);
-
-    if (cmp < 0) {
-        *indexPtr = mid;
-    } else {
-        *indexPtr = mid + 1;
     }
-
-    return 3;
+    *indexPtr = lo;
+    return lo < cache->entriesLength && cache->entries[lo]->key == key ? 2 : 3;
 }
 
 // 0x420708
@@ -381,6 +360,7 @@ static bool cacheEntryInit(CacheEntry* cacheEntry)
     cacheEntry->hits = 0;
     cacheEntry->flags = 0;
     cacheEntry->mru = 0;
+    cacheEntry->heapHandleIndex = -1;
     return true;
 }
 
@@ -389,7 +369,7 @@ static bool cacheEntryInit(CacheEntry* cacheEntry)
 // 0x420740
 static bool cacheEntryFree(Cache* cache, CacheEntry* cacheEntry)
 {
-    if (cacheEntry->data != nullptr) {
+    if (cacheEntry->heapHandleIndex >= 0) {
         heapBlockDeallocate(&(cache->heap), &(cacheEntry->heapHandleIndex));
     }
 
@@ -440,7 +420,7 @@ static bool cacheResetStatistics(Cache* cache)
 
     cache->hits = cache->entriesLength;
 
-    // FIXME: Obviously leak `entries`.
+    internal_free(entries);
 
     return true;
 }
@@ -526,29 +506,25 @@ static bool cacheEnsureSize(Cache* cache, int size)
 // 0x42099C
 static bool cacheSweep(Cache* cache)
 {
-    for (int index = 0; index < cache->entriesLength; index++) {
-        CacheEntry* cacheEntry = cache->entries[index];
-        if ((cacheEntry->flags & CACHE_ENTRY_MARKED_FOR_EVICTION) != 0) {
-            if (cacheEntry->referenceCount != 0) {
-                // Entry was marked for eviction but still has references,
-                // unmark it.
-                cacheEntry->flags &= ~CACHE_ENTRY_MARKED_FOR_EVICTION;
-            } else {
-                int cacheEntrySize = cacheEntry->size;
-
-                // NOTE: Uninline.
-                cacheEntryFree(cache, cacheEntry);
-
-                // Move entries up.
-                memmove(&(cache->entries[index]), &(cache->entries[index + 1]), sizeof(*cache->entries) * ((cache->entriesLength - index) - 1));
-
-                cache->entriesLength--;
-                cache->size -= cacheEntrySize;
-
-                // The entry was removed, compensate index.
-                index--;
+    // Compact the sorted entry array once instead of shifting its tail for
+    // each eviction. Locked entries and the original eviction policy survive.
+    int kept = 0;
+    const int length = cache->entriesLength;
+    for (int index = 0; index < length; index++) {
+        CacheEntry* entry = cache->entries[index];
+        if ((entry->flags & CACHE_ENTRY_MARKED_FOR_EVICTION) != 0) {
+            if (entry->referenceCount == 0) {
+                cache->size -= entry->size;
+                cacheEntryFree(cache, entry);
+                continue;
             }
+            entry->flags &= ~CACHE_ENTRY_MARKED_FOR_EVICTION;
         }
+        cache->entries[kept++] = entry;
+    }
+    cache->entriesLength = kept;
+    for (int index = kept; index < length; index++) {
+        cache->entries[index] = nullptr;
     }
 
     return true;

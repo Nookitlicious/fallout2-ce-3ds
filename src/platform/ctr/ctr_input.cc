@@ -2,15 +2,20 @@
 #include <stdio.h>
 
 #include "ctr_input.h"
+#include "ctr_mod_profiles.h"
+#include "game.h"
 #include "ctr_gfx.h"
 #include "ctr_rectmap.h"
+#include "ctr_main_menu_layout.h"
 //#include "ctr_sys.h"
 
 #include "platform_compat.h"
+#include "sfall_config.h"
 
 //#include "plib/gnw/gnw.h"
 #include "svga.h"
 #include "input.h"
+#include "character_editor.h"
 #include "mouse.h"
 #include "touch.h"
 #include "debug.h"
@@ -45,6 +50,7 @@ ctr_input_t ctr_input;
 static u8 key_combi_flags = FLAG_NONE;
 static u32 oldpad = 0;
 static bool scaled_rect_top = false;
+static int cursorDivisor = 10;
 static float previousSliderState = -1.0f;
 static float manualScaleFactor = 0.0f;
 
@@ -91,6 +97,9 @@ void ctr_input_get_touch(int *newX, int *newY)
 {
     switch (ctr_rectMap.active)
     {
+        case DISPLAY_MAIN:
+            ctr_menu::mapTouch(ctr_input.frame.touchX, ctr_input.frame.touchY, newX, newY);
+            break;
         case DISPLAY_FULL:
             *newX = (ctr_input.frame.touchX * screenGetWidth()) / 320;
             *newY = (ctr_input.frame.touchY * screenGetHeight()) / 240;
@@ -126,6 +135,15 @@ void ctr_input_get_touch(int *newX, int *newY)
                 input_touch_to_texture(DISPLAY_CHAR_EDIT_SEX,
                         ctr_input.frame.touchX, ctr_input.frame.touchY, newX, newY);
             break;
+        case DISPLAY_PIPBOY:
+        case DISPLAY_AUTOMAP:
+        case DISPLAY_SAVE_COMMENT:
+        case DISPLAY_DYNAMIC:
+            // A tap in the letterbox must not reuse a previous button position.
+            *newX = rectMaps[ctr_rectMap.active][0]->src_x > 0 ? 0 : screenGetWidth() - 1;
+            *newY = rectMaps[ctr_rectMap.active][0]->src_y > 0 ? 0 : screenGetHeight() - 1;
+            input_touch_to_texture(ctr_rectMap.active, ctr_input.frame.touchX, ctr_input.frame.touchY, newX, newY);
+            break;
         case DISPLAY_LOADSAVE:
             input_touch_to_texture(DISPLAY_LOADSAVE_SLOT,
                     ctr_input.frame.touchX, ctr_input.frame.touchY, newX, newY);
@@ -136,6 +154,9 @@ void ctr_input_get_touch(int *newX, int *newY)
             break;
     }
 }
+
+static bool menuQuitEnabled = false;
+void ctr_input_set_menu_quit(bool enabled) { menuQuitEnabled = enabled; }
 
 void ctr_input_process(void)
 {
@@ -165,6 +186,11 @@ void ctr_input_process(void)
             break;
 
         case SDL_QUIT:
+            if (menuQuitEnabled) {
+                ctrModProfileStage("SDL quit received in menu; requesting orderly exit");
+                _game_user_wants_to_quit = 3;
+                return;
+            }
             exit(EXIT_SUCCESS);
             break;
         }
@@ -212,7 +238,8 @@ void input_frame_axis(int *delta_x, int *delta_y)
 
     if ((ctr_rectMap.active == DISPLAY_FULL) || (ctr_rectMap.active == DISPLAY_FIELD) ||
             (ctr_rectMap.active == DISPLAY_GUI) || (ctr_rectMap.active == DISPLAY_WORLDMAP) ||
-            (ctr_rectMap.active == DISPLAY_CHAR_SELECT) || (ctr_rectMap.active == DISPLAY_CHAR)) {
+            (ctr_rectMap.active == DISPLAY_CHAR_SELECT) || (ctr_rectMap.active == DISPLAY_CHAR) ||
+            (ctr_rectMap.active == DISPLAY_PIPBOY)) {
 
         circlePosition circle;
         hidCircleRead(&circle);
@@ -220,9 +247,9 @@ void input_frame_axis(int *delta_x, int *delta_y)
         circlePosition cstick;
         hidCstickRead(&cstick);
 
-        // both axis for now
-        moveX = (int)circle.dx / 15 + (int)cstick.dx / 15;
-        moveY = -((int)circle.dy / 15 + (int)cstick.dy / 15);
+        // Moderate Circle Pad speed for accurate O3DS cursor targeting; C-stick unchanged.
+        moveX = (int)circle.dx / cursorDivisor + (int)cstick.dx / 15;
+        moveY = -((int)circle.dy / cursorDivisor + (int)cstick.dy / 15);
 
         if (abs(moveX) < 2) {
             moveX = 0;
@@ -320,12 +347,23 @@ void input_frame_buttons(int *delta_x, int *delta_y, int *buttons)
         if (key_combi_flags) {
             key_combi_flags = FLAG_NONE;
         } else {
-            ctr_input.mode = ((ctr_input.mode + 1) % DISPLAY_MODE_FULL_TOP); // DISPLAY_MODE_LAST
-            setActiveRectMap(DISPLAY_LAST);
+            if (isGameplayRectMap(ctr_rectMap.main)) {
+                ctr_input.mode = ((ctr_input.mode + 1) % DISPLAY_MODE_FULL_TOP);
+                setActiveRectMap(DISPLAY_LAST);
+            }
         }
     }
 
     if (key_combi_flags == FLAG_NONE) {
+        if (ctr_rectMap.active == DISPLAY_PIPBOY) {
+            if (KEY_HELD(KEY_DUP)) *delta_y -= 4;
+            if (KEY_HELD(KEY_DDOWN)) *delta_y += 4;
+            if (KEY_HELD(KEY_DLEFT)) *delta_x -= 4;
+            if (KEY_HELD(KEY_DRIGHT)) *delta_x += 4;
+            if (KEY_HELD(KEY_A) || KEY_HELD(KEY_R)) *buttons |= MOUSE_STATE_LEFT_BUTTON_DOWN;
+            oldpad = ctr_input.frame.kHeld;
+            return;
+        }
         if (KEY_PRESS(KEY_L)) {
             *buttons |= MOUSE_STATE_RIGHT_BUTTON_DOWN;
         }
@@ -462,6 +500,19 @@ int ctr_input_frame(void)
     input_frame_axis(&delta_x, &delta_y);
     input_frame_buttons(&delta_x, &delta_y, &buttons);
 
+    if (ctr_rectMap.active == DISPLAY_PIPBOY && (delta_x || delta_y)) {
+        int x, y; mouseGetPosition(&x, &y);
+        const int left = (screenGetWidth()-640)/2 + 254;
+        const int top = (screenGetHeight()-480)/2 + 46;
+        if (x < left || x >= left+374 || y < top || y >= top+410) {
+            mouseHideCursor(); _mouse_set_position(left+187, top+205); mouseShowCursor();
+        }
+        mouseGetPosition(&x, &y);
+        if (x+delta_x < left) delta_x = left-x;
+        if (x+delta_x >= left+374) delta_x = left+373-x;
+        if (y+delta_y < top) delta_y = top-y;
+        if (y+delta_y >= top+410) delta_y = top+409-y;
+    }
     if ((delta_x != 0) || (delta_y != 0) || (buttons != 0)) {
         _mouse_simulate_input(delta_x, delta_y, buttons);
         return 1;
@@ -536,49 +587,82 @@ void ctr_input_swkdb_init(void)
     swkbd_about_lookup_word();
 }
 */
-int ctr_input_swkbd(const char *hintText, const char *inText, char *outText)
+// Fallout's legacy text fields accept single-byte ASCII, not UTF-8 sequences.
+struct TextInputRules {
+    int maxLength;
+    bool dosFilename;
+};
+
+static bool validKeyboardText(const TextInputRules& rules, const char* text, size_t length)
 {
-    SwkbdState swkbd;
-    static SwkbdStatusData swkbdStatus;
-    static SwkbdLearningData swkbdLearning;
-    char mybuf[ABOUT_INPUT_MAX_SIZE];
-
-    swkbdInit(&swkbd, SWKBD_TYPE_NORMAL, 2, -1);
-    swkbdSetValidation(&swkbd, SWKBD_NOTEMPTY_NOTBLANK, 0, 0);
-    swkbdSetInitialText(&swkbd, inText);
-    swkbdSetHintText(&swkbd, hintText);
-    swkbdSetButton(&swkbd, SWKBD_BUTTON_LEFT, "Done", true);
-    swkbdSetButton(&swkbd, SWKBD_BUTTON_RIGHT, "Close", false);
-    swkbdSetFeatures(&swkbd,
-            SWKBD_PREDICTIVE_INPUT | SWKBD_ALLOW_HOME | SWKBD_ALLOW_RESET | SWKBD_ALLOW_POWER);
-//    swkbdSetDictionary(&swkbd, words, sizeof(words)/sizeof(SwkbdDictWord));
-
-    static bool reload = false;
-    swkbdSetStatusData(&swkbd, &swkbdStatus, reload, true);
-    swkbdSetLearningData(&swkbd, &swkbdLearning, reload, true);
-    reload = true;
-
-    SwkbdButton button = swkbdInputText(&swkbd, mybuf, sizeof(mybuf));
-
-    if (button == SWKBD_BUTTON_LEFT) {
-    strncpy(outText, mybuf, ABOUT_INPUT_MAX_SIZE - 1);
-
-    outText[ABOUT_INPUT_MAX_SIZE - 1] = '\0';
-        return 1;
-    } else if (button == SWKBD_BUTTON_RIGHT) {
-        outText[0] = '\0';
-        return -1;
+    if (length > static_cast<size_t>(rules.maxLength)) {
+        return false;
     }
+    for (size_t i = 0; i < length; ++i) {
+        unsigned char ch = text[i];
+        if (ch < ' ' || ch > 'z' || (rules.dosFilename && !_isdoschar(ch))) {
+            return false;
+        }
+    }
+    return true;
+}
 
-    outText[0] = '\0';
-#ifdef _DEBUG
-    debug_printf("swkbd event: %i, %d\n", button, swkbdGetResult(&swkbd));
-#endif
-    return -2;
+static SwkbdCallbackResult validateKeyboardText(void* user, const char** message, const char* text, size_t length)
+{
+    const TextInputRules& rules = *static_cast<const TextInputRules*>(user);
+    if (!validKeyboardText(rules, text, length)) {
+        *message = rules.dosFilename ? "Use a valid DOS filename (up to 8 characters)." : "Use English letters, numbers or supported punctuation.";
+        return SWKBD_CALLBACK_CONTINUE;
+    }
+    return SWKBD_CALLBACK_OK;
+}
+
+bool ctr_input_edit_text(const char* hintText, char* text, int maxLength, bool allowEmpty, bool dosFilename)
+{
+    if (maxLength < 1 || maxLength > 255) {
+        return false;
+    }
+    TextInputRules rules = { maxLength, dosFilename };
+    char initial[256] = {};
+    strncpy(initial, text, maxLength);
+    // Allow editing a legacy name even if its previous encoding is unsupported.
+    if (!validKeyboardText(rules, initial, strlen(initial))) {
+        initial[0] = '\0';
+    }
+    char result[256 * 3 + 1] = {};
+    SwkbdState swkbd;
+    swkbdInit(&swkbd, SWKBD_TYPE_QWERTY, 2, maxLength);
+    swkbdSetValidation(&swkbd, allowEmpty ? SWKBD_ANYTHING : SWKBD_NOTEMPTY_NOTBLANK, 0, 0);
+    swkbdSetInitialText(&swkbd, initial);
+    swkbdSetHintText(&swkbd, hintText);
+    swkbdSetButton(&swkbd, SWKBD_BUTTON_LEFT, "Cancel", false);
+    swkbdSetButton(&swkbd, SWKBD_BUTTON_RIGHT, "Done", true);
+    swkbdSetFilterCallback(&swkbd, validateKeyboardText, &rules);
+
+    renderPresent();
+    SwkbdButton button = swkbdInputText(&swkbd, result, sizeof(result));
+    // Synchronize physical button state after the modal applet exits.
+    hidScanInput();
+    ctr_input.frame.kHeld = hidKeysHeld();
+    oldpad = ctr_input.frame.kHeld;
+    SDL_FlushEvents(SDL_KEYDOWN, SDL_TEXTINPUT);
+    // The applet owns the displays while open; force the next game frame.
+    ctr_gfx_invalidate();
+    size_t length = strlen(result);
+    if (button != SWKBD_BUTTON_RIGHT || (!allowEmpty && length == 0)
+        || !validKeyboardText(rules, result, length)) {
+        return false;
+    }
+    memcpy(text, result, length + 1);
+    return true;
 }
 
 void ctr_input_init(void)
 {
+    cursorDivisor = 10;
+    configGetInt(&gSfallConfig, SFALL_CONFIG_MISC_KEY, "O3DSCursorDivisor", &cursorDivisor);
+    if (cursorDivisor < 4) cursorDivisor = 4;
+    if (cursorDivisor > 20) cursorDivisor = 20;
     ctr_input.input = INPUT_TOUCH;
     previousSliderState = osGet3DSliderState();
 

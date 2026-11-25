@@ -16,6 +16,7 @@
 #include "game_sound.h"
 #include "graph_lib.h"
 #include "input.h"
+#include "o3ds_menu_profile.h"
 #include "item.h"
 #include "kb.h"
 #include "map.h"
@@ -26,6 +27,11 @@
 #include "svga.h"
 #include "text_font.h"
 #include "window_manager.h"
+
+#ifdef __3DS__
+#include "platform/ctr/ctr_rectmap.h"
+#include "platform/ctr/ctr_gfx.h"
+#endif
 
 namespace fallout {
 
@@ -297,6 +303,7 @@ int _automapDisplayMap(int map)
 // 0x41B8BC
 void automapShow(bool isInGame, bool isUsingScanner)
 {
+    O3dsMenuProfile profile("automap");
     ScopedGameMode gm(GameMode::kAutomap);
 
     int frmIds[AUTOMAP_FRM_COUNT];
@@ -310,6 +317,7 @@ void automapShow(bool isInGame, bool isUsingScanner)
         }
     }
 
+    profile.mark("artwork");
     int color;
     if (isInGame) {
         color = _colorTable[8456];
@@ -318,6 +326,7 @@ void automapShow(bool isInGame, bool isUsingScanner)
         color = _colorTable[22025];
     }
 
+    profile.mark("seen_objects");
     int oldFont = fontGetCurrent();
     fontSetCurrent(101);
 
@@ -325,6 +334,13 @@ void automapShow(bool isInGame, bool isUsingScanner)
     int automapWindowY = (screenGetHeight() - AUTOMAP_WINDOW_HEIGHT) / 2;
     int window = windowCreate(automapWindowX, automapWindowY, AUTOMAP_WINDOW_WIDTH, AUTOMAP_WINDOW_HEIGHT, color, WINDOW_MODAL | WINDOW_MOVE_ON_TOP);
 
+    if (window == -1) { fontSetCurrent(oldFont); return; }
+#ifdef __3DS__
+    const rectMap_e previousMap = ctr_rectMap.main;
+    setRectMapPos(DISPLAY_AUTOMAP, automapWindowX, automapWindowY, AUTOMAP_WINDOW_WIDTH, AUTOMAP_WINDOW_HEIGHT, false);
+    setActiveRectMap(DISPLAY_AUTOMAP);
+    ctr_gfx_invalidate();
+#endif
     int scannerBtn = buttonCreate(window,
         111,
         454,
@@ -392,11 +408,13 @@ void automapShow(bool isInGame, bool isUsingScanner)
         gAutomapFlags |= AUTOMAP_WITH_SCANNER;
     }
 
+    profile.mark("window_and_buttons");
     automapRenderInMapWindow(window, elevation, frmImages[AUTOMAP_FRM_BACKGROUND].getData(), gAutomapFlags);
 
     bool isoWasEnabled = isoDisable();
     gameMouseSetCursor(MOUSE_CURSOR_ARROW);
 
+    profile.finish();
     bool done = false;
     while (!done) {
         sharedFpsLimiter.mark();
@@ -491,6 +509,10 @@ void automapShow(bool isInGame, bool isUsingScanner)
     }
 
     windowDestroy(window);
+#ifdef __3DS__
+    setActiveRectMap(previousMap);
+    ctr_gfx_invalidate();
+#endif
     fontSetCurrent(oldFont);
 }
 

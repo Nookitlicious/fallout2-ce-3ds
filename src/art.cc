@@ -1,6 +1,11 @@
 #include "art.h"
+#ifdef __3DS__
+#include "platform/ctr/ctr_mod_profiles.h"
+#endif
 
 #include <stdio.h>
+#include <stdint.h>
+#include <limits.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -34,7 +39,7 @@ static int artReadList(const char* path, char** out_arr, int* out_count);
 static int artCacheGetFileSizeImpl(int a1, int* out_size);
 static int artCacheReadDataImpl(int a1, int* a2, unsigned char* data);
 static void artCacheFreeImpl(void* ptr);
-static int artReadFrameData(unsigned char* data, File* stream, int count, int* paddingPtr);
+static int artReadFrameData(unsigned char* data, size_t capacity, File* stream, int count, size_t* used);
 static int artReadHeader(Art* art, File* stream);
 static int artGetDataSize(Art* art);
 static int paddingForSize(int size);
@@ -135,10 +140,28 @@ int artInit()
     char string[200];
 
     int cacheSize = settings.system.art_cache_size;
+#ifdef __3DS__
+    if (ctrModProfileActive()) {
+        // Desktop mod configs may request hundreds of MiB, beyond O3DS RAM.
+        // Keep the engine's original 8 MiB default as the profile ceiling.
+        const int requested = cacheSize;
+        if (cacheSize <= 0 || cacheSize > 8) cacheSize = 8;
+        char stage[128];
+        snprintf(stage, sizeof(stage), "Art cache requested %d MiB; using %d MiB", requested, cacheSize);
+        ctrModProfileStage(stage);
+    }
+#endif
     if (!cacheInit(&gArtCache, artCacheGetFileSizeImpl, artCacheReadDataImpl, artCacheFreeImpl, cacheSize << 20)) {
         debugPrint("cache_init failed in art_init\n");
+#ifdef __3DS__
+        if (ctrModProfileActive()) ctrModProfileStage("Art init failed: cache allocation");
+#endif
         return -1;
     }
+
+#ifdef __3DS__
+    if (ctrModProfileActive()) ctrModProfileStage("Art cache allocated");
+#endif
 
     const char* language = settings.system.language.c_str();
     if (compat_stricmp(language, ENGLISH) != 0) {
@@ -153,6 +176,13 @@ int artInit()
 
         if (artReadList(path, &(gArtListDescriptions[objectType].fileNames), &(gArtListDescriptions[objectType].fileNamesLength)) != 0) {
             debugPrint("art_read_lst failed in art_init\n");
+#ifdef __3DS__
+            if (ctrModProfileActive()) {
+                char stage[COMPAT_MAX_PATH + 64];
+                snprintf(stage, sizeof(stage), "Art init failed: list %s", path);
+                ctrModProfileStage(stage);
+            }
+#endif
             cacheFree(&gArtCache);
             return -1;
         }
@@ -162,6 +192,9 @@ int artInit()
     if (_anon_alias == nullptr) {
         gArtListDescriptions[OBJ_TYPE_CRITTER].fileNamesLength = 0;
         debugPrint("Out of memory for anon_alias in art_init\n");
+#ifdef __3DS__
+        if (ctrModProfileActive()) ctrModProfileStage("Art init failed: Out of memory for anon_alias in art_init");
+#endif
         cacheFree(&gArtCache);
         return -1;
     }
@@ -170,6 +203,9 @@ int artInit()
     if (gArtCritterFidShoudRunData == nullptr) {
         gArtListDescriptions[OBJ_TYPE_CRITTER].fileNamesLength = 0;
         debugPrint("Out of memory for artCritterFidShouldRunData in art_init\n");
+#ifdef __3DS__
+        if (ctrModProfileActive()) ctrModProfileStage("Art init failed: Out of memory for artCritterFidShouldRunData in art_init");
+#endif
         cacheFree(&gArtCache);
         return -1;
     }
@@ -183,6 +219,13 @@ int artInit()
     stream = fileOpen(path, "rt");
     if (stream == nullptr) {
         debugPrint("Unable to open %s in art_init\n", path);
+#ifdef __3DS__
+        if (ctrModProfileActive()) {
+            char stage[COMPAT_MAX_PATH + 64];
+            snprintf(stage, sizeof(stage), "Art init failed: reopen %s", path);
+            ctrModProfileStage(stage);
+        }
+#endif
         cacheFree(&gArtCache);
         return -1;
     }
@@ -265,6 +308,9 @@ int artInit()
     if (gHeadDescriptions == nullptr) {
         gArtListDescriptions[OBJ_TYPE_HEAD].fileNamesLength = 0;
         debugPrint("Out of memory for head_info in art_init\n");
+#ifdef __3DS__
+        if (ctrModProfileActive()) ctrModProfileStage("Art init failed: Out of memory for head_info in art_init");
+#endif
         cacheFree(&gArtCache);
         return -1;
     }
@@ -274,6 +320,13 @@ int artInit()
     stream = fileOpen(path, "rt");
     if (stream == nullptr) {
         debugPrint("Unable to open %s in art_init\n", path);
+#ifdef __3DS__
+        if (ctrModProfileActive()) {
+            char stage[COMPAT_MAX_PATH + 64];
+            snprintf(stage, sizeof(stage), "Art init failed: reopen %s", path);
+            ctrModProfileStage(stage);
+        }
+#endif
         cacheFree(&gArtCache);
         return -1;
     }
@@ -954,7 +1007,7 @@ static int artCacheGetFileSizeImpl(int fid, int* sizePtr)
             Art art;
             if (artReadHeader(&art, stream) == 0) {
                 *sizePtr = artGetDataSize(&art);
-                result = 0;
+                if (*sizePtr > 0) result = 0;
             }
             fileClose(stream);
         }
@@ -980,13 +1033,13 @@ static int artCacheReadDataImpl(int fid, int* sizePtr, unsigned char* data)
             char localizedPath[COMPAT_MAX_PATH];
             snprintf(localizedPath, sizeof(localizedPath), "art\\%s\\%s", gArtLanguage, pch);
 
-            if (artRead(localizedPath, data) == 0) {
+            if (artRead(localizedPath, data, *sizePtr) == 0) {
                 loaded = true;
             }
         }
 
         if (!loaded) {
-            if (artRead(artFileName, data) == 0) {
+            if (artRead(artFileName, data, *sizePtr) == 0) {
                 loaded = true;
             }
         }
@@ -1030,48 +1083,73 @@ int buildFid(int objectType, int frmId, int animType, int weaponCode, int rotati
     return buildFidInternal(frmId, weaponCode, animType, objectType, rotation);
 }
 
-// 0x419D60
-static int artReadFrameData(unsigned char* data, File* stream, int count, int* paddingPtr)
+// Decode on-disk big-endian fields without alignment-dependent loads.
+static short artDiskInt16(const unsigned char* p)
 {
-    unsigned char* ptr = data;
-    int padding = 0;
-    for (int index = 0; index < count; index++) {
-        ArtFrame* frame = (ArtFrame*)ptr;
+    uint16_t bits = (uint16_t(p[0]) << 8) | uint16_t(p[1]);
+    short value;
+    memcpy(&value, &bits, sizeof(value));
+    return value;
+}
 
-        if (fileReadInt16(stream, &(frame->width)) == -1) return -1;
-        if (fileReadInt16(stream, &(frame->height)) == -1) return -1;
-        if (fileReadInt32(stream, &(frame->size)) == -1) return -1;
-        if (fileReadInt16(stream, &(frame->x)) == -1) return -1;
-        if (fileReadInt16(stream, &(frame->y)) == -1) return -1;
-        if (fileRead(ptr + sizeof(ArtFrame), frame->size, 1, stream) != 1) return -1;
+static int artDiskInt32(const unsigned char* p)
+{
+    uint32_t bits = (uint32_t(p[0]) << 24) | (uint32_t(p[1]) << 16)
+        | (uint32_t(p[2]) << 8) | uint32_t(p[3]);
+    int value;
+    memcpy(&value, &bits, sizeof(value));
+    return value;
+}
 
-        ptr += sizeof(ArtFrame) + frame->size;
-        ptr += paddingForSize(frame->size);
-        padding += paddingForSize(frame->size);
+// 0x419D60
+static int artReadFrameData(unsigned char* data, size_t capacity, File* stream, int count, size_t* used)
+{
+    size_t offset = 0;
+    for (int index = 0; index < count; ++index) {
+        unsigned char header[12];
+        if (fileRead(header, 1, sizeof(header), stream) != sizeof(header)) return -1;
+        ArtFrame frame;
+        frame.width = artDiskInt16(header);
+        frame.height = artDiskInt16(header + 2);
+        frame.size = artDiskInt32(header + 4);
+        frame.x = artDiskInt16(header + 8);
+        frame.y = artDiskInt16(header + 10);
+        if (frame.width <= 0 || frame.height <= 0 || frame.size <= 0 || frame.size != (int)frame.width * frame.height) return -1;
+        size_t bytes = sizeof(ArtFrame) + (size_t)frame.size + paddingForSize(frame.size);
+        if (bytes > capacity - offset) return -1;
+        memcpy(data + offset, &frame, sizeof(frame));
+        if (fileRead(data + offset + sizeof(ArtFrame), 1, frame.size, stream) != (size_t)frame.size) return -1;
+        offset += bytes;
     }
-
-    *paddingPtr = padding;
-
+    *used = offset;
     return 0;
 }
 
 // 0x419E1C
 static int artReadHeader(Art* art, File* stream)
 {
-    if (fileReadInt32(stream, &(art->field_0)) == -1) return -1;
-    if (fileReadInt16(stream, &(art->framesPerSecond)) == -1) return -1;
-    if (fileReadInt16(stream, &(art->actionFrame)) == -1) return -1;
-    if (fileReadInt16(stream, &(art->frameCount)) == -1) return -1;
-    if (fileReadInt16List(stream, art->xOffsets, ROTATION_COUNT) == -1) return -1;
-    if (fileReadInt16List(stream, art->yOffsets, ROTATION_COUNT) == -1) return -1;
-    if (fileReadInt32List(stream, art->dataOffsets, ROTATION_COUNT) == -1) return -1;
-    if (fileReadInt32(stream, &(art->dataSize)) == -1) return -1;
+    // The original FRM header is 62 bytes regardless of compiler padding.
+    unsigned char header[62];
+    if (fileRead(header, 1, sizeof(header), stream) != sizeof(header)) return -1;
+    art->field_0 = artDiskInt32(header);
+    art->framesPerSecond = artDiskInt16(header + 4);
+    art->actionFrame = artDiskInt16(header + 6);
+    art->frameCount = artDiskInt16(header + 8);
+    for (int i = 0; i < ROTATION_COUNT; i++) {
+        art->xOffsets[i] = artDiskInt16(header + 10 + 2 * i);
+        art->yOffsets[i] = artDiskInt16(header + 22 + 2 * i);
+        art->dataOffsets[i] = artDiskInt32(header + 34 + 4 * i);
+    }
+    art->dataSize = artDiskInt32(header + 58);
 
     // CE: Fix malformed `frm` files with `dataSize` set to 0 in Nevada.
-    if (art->dataSize == 0) {
-        art->dataSize = fileGetSize(stream);
+    int payload = fileGetSize(stream) - 62;
+    if (payload <= 0 || art->frameCount <= 0) return -1;
+    if (art->dataSize == 0) art->dataSize = payload;
+    if (art->dataSize < 0 || art->dataSize > payload) return -1;
+    for (int i = 0; i < ROTATION_COUNT; ++i) {
+        if (art->dataOffsets[i] < 0 || art->dataOffsets[i] >= art->dataSize) return -1;
     }
-
     return 0;
 }
 
@@ -1096,12 +1174,14 @@ Art* artLoad(const char* path)
 
     fileClose(stream);
 
-    unsigned char* data = reinterpret_cast<unsigned char*>(internal_malloc(artGetDataSize(&header)));
+    int capacity = artGetDataSize(&header);
+    if (capacity <= 0) return nullptr;
+    unsigned char* data = reinterpret_cast<unsigned char*>(internal_malloc(capacity));
     if (data == nullptr) {
         return nullptr;
     }
 
-    if (artRead(path, data) != 0) {
+    if (artRead(path, data, capacity) != 0) {
         internal_free(data);
         return nullptr;
     }
@@ -1110,35 +1190,36 @@ Art* artLoad(const char* path)
 }
 
 // 0x419FC0
-int artRead(const char* path, unsigned char* data)
+int artRead(const char* path, unsigned char* data, int capacity)
 {
+    if (data == nullptr || capacity < (int)sizeof(Art)) return -3;
     File* stream = fileOpen(path, "rb");
-    if (stream == nullptr) {
-        return -2;
-    }
-
+    if (stream == nullptr) return -2;
     Art* art = (Art*)data;
-    if (artReadHeader(art, stream) != 0) {
+    if (artReadHeader(art, stream) != 0 || artGetDataSize(art) <= 0 || artGetDataSize(art) > capacity) {
         fileClose(stream);
         return -3;
     }
-
-    int currentPadding = paddingForSize(sizeof(Art));
-    int previousPadding = 0;
-
-    for (int index = 0; index < ROTATION_COUNT; index++) {
-        art->padding[index] = currentPadding;
-
-        if (index == 0 || art->dataOffsets[index - 1] != art->dataOffsets[index]) {
-            art->padding[index] += previousPadding;
-            currentPadding += previousPadding;
-            if (artReadFrameData(data + sizeof(Art) + art->dataOffsets[index] + art->padding[index], stream, art->frameCount, &previousPadding) != 0) {
-                fileClose(stream);
-                return -5;
-            }
+    size_t cursor = sizeof(Art) + paddingForSize(sizeof(Art));
+    for (int index = 0; index < ROTATION_COUNT; ++index) {
+        int previous = 0;
+        while (previous < index && art->dataOffsets[previous] != art->dataOffsets[index]) ++previous;
+        if (previous < index) {
+            art->padding[index] = art->padding[previous];
+            continue;
         }
+        if (cursor > (size_t)capacity || (fileTell(stream) != 62L + art->dataOffsets[index] && fileSeek(stream, 62L + art->dataOffsets[index], SEEK_SET) != 0)) {
+            fileClose(stream);
+            return -5;
+        }
+        art->padding[index] = (int)(cursor - sizeof(Art)) - art->dataOffsets[index];
+        size_t used = 0;
+        if (artReadFrameData(data + cursor, capacity - cursor, stream, art->frameCount, &used) != 0) {
+            fileClose(stream);
+            return -5;
+        }
+        cursor += used;
     }
-
     fileClose(stream);
     return 0;
 }
@@ -1218,17 +1299,13 @@ int artWrite(const char* path, unsigned char* data)
 
 static int artGetDataSize(Art* art)
 {
-    int dataSize = sizeof(*art) + art->dataSize;
-
-    for (int index = 0; index < ROTATION_COUNT; index++) {
-        if (index == 0 || art->dataOffsets[index - 1] != art->dataOffsets[index]) {
-            // Assume worst case - every frame is unaligned and need
-            // max padding.
-            dataSize += (sizeof(int) - 1) * art->frameCount;
-        }
+    int64_t dataSize = sizeof(*art) + (int64_t)art->dataSize + paddingForSize(sizeof(*art));
+    for (int index = 0; index < ROTATION_COUNT; ++index) {
+        int previous = 0;
+        while (previous < index && art->dataOffsets[previous] != art->dataOffsets[index]) ++previous;
+        if (previous == index) dataSize += (sizeof(int) - 1) * (int64_t)art->frameCount;
     }
-
-    return dataSize;
+    return dataSize > 0 && dataSize <= INT_MAX ? (int)dataSize : -1;
 }
 
 static int paddingForSize(int size)

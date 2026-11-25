@@ -1,6 +1,7 @@
 #include "xfile.h"
 
 #include <assert.h>
+#include <limits.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -12,6 +13,7 @@
 #endif
 
 #include "file_find.h"
+#include "o3ds_v7_options.h"
 
 namespace fallout {
 
@@ -65,6 +67,33 @@ int xfileClose(XFile* stream)
     free(stream);
 
     return rc;
+}
+
+bool xfilePrimaryLoosePath(const char* relativePath, const char* directory)
+{
+    if (!relativePath || !directory || !*directory || strchr(relativePath, ':') || relativePath[0] == '.' || relativePath[0] == '/' || relativePath[0] == '\\') return false;
+    for (XBase* base = gXbaseHead; base; base = base->next) {
+        if (!base->isDbase) return compat_stricmp(base->path, directory) == 0;
+        // Same exact case-insensitive archive lookup used by dfileOpen.
+        int lo = 0, hi = base->dbase->entriesLength;
+        while (lo < hi) {
+            int mid = lo + (hi - lo) / 2;
+            int cmp = compat_stricmp(relativePath, base->dbase->entries[mid].path);
+            if (!cmp) return false;
+            if (cmp < 0) hi = mid; else lo = mid + 1;
+        }
+    }
+    return false;
+}
+
+DFile* xfileOpenArchiveEntry(const char* archivePath, const char* entryPath)
+{
+    if (!archivePath || !*archivePath || !entryPath || !*entryPath) return nullptr;
+    for (XBase* base = gXbaseHead; base; base = base->next) {
+        if (base->isDbase && compat_stricmp(base->path, archivePath) == 0)
+            return dfileOpen(base->dbase, entryPath, "rb");
+    }
+    return nullptr;
 }
 
 // 0x4DEE2C
@@ -138,6 +167,17 @@ XFile* xfileOpen(const char* filePath, const char* mode)
     }
 
     if (stream->type == XFILE_TYPE_FILE) {
+        if (o3dsV7FastIo()) {
+            // Larger bounded stdio buffers reduce SD service calls. No global
+            // write-behind: fclose and normal seeks still flush as usual.
+            if (mode[0] != 'r' || strchr(mode, '+') != nullptr) {
+                setvbuf(stream->file, nullptr, _IOFBF, 64 * 1024);
+            } else {
+                setvbuf(stream->file, nullptr, _IOFBF, 8 * 1024);
+            }
+            // A newly truncated or write-only stream cannot contain a gzip header.
+            if (mode[0] == 'w' || (mode[0] == 'a' && strchr(mode, '+') == nullptr)) return stream;
+        }
         // Opened file is a plain stream, which might be gzipped. In this case
         // first two bytes will contain magic numbers.
         int ch1 = fgetc(stream->file);
@@ -149,6 +189,10 @@ XFile* xfileOpen(const char* filePath, const char* mode)
 
             stream->type = XFILE_TYPE_GZFILE;
             stream->gzfile = compat_gzopen(path, mode);
+            if (stream->gzfile == nullptr) {
+                free(stream);
+                return nullptr;
+            }
         } else {
             // File is not gzipped.
             rewind(stream->file);
@@ -301,14 +345,15 @@ size_t xfileRead(void* ptr, size_t size, size_t count, XFile* stream)
     case XFILE_TYPE_DFILE:
         elementsRead = dfileRead(ptr, size, count, stream->dfile);
         break;
-    case XFILE_TYPE_GZFILE:
-        // FIXME: There is a bug in the return value. Both [dfileRead] and
-        // [fread] returns number of elements read, but [gzwrite] have no such
-        // concept, it works with bytes, and returns number of bytes read.
-        // Depending on the [size] and [count] parameters this function can
-        // return wrong result.
-        elementsRead = gzread(stream->gzfile, ptr, size * count);
+    case XFILE_TYPE_GZFILE: {
+        // gzread returns bytes (or -1), while fread returns complete items.
+        if (size == 0 || count == 0 || count > static_cast<size_t>(INT_MAX) / size) {
+            return 0;
+        }
+        int bytesRead = gzread(stream->gzfile, ptr, static_cast<unsigned int>(size * count));
+        elementsRead = bytesRead > 0 ? static_cast<size_t>(bytesRead) / size : 0;
         break;
+    }
     default:
         elementsRead = fread(ptr, size, count, stream->file);
         break;
@@ -562,12 +607,18 @@ static bool xlistEnumerate(const char* pattern, XListEnumerationHandler* handler
     assert(pattern); // "filespec", "xfile.c", 845
     assert(handler); // "enumfunc", "xfile.c", 846
 
-    DirectoryFileFindData directoryFileFindData;
+    DirectoryFileFindData directoryFileFindData = {};
+#ifdef _WIN32
+    directoryFileFindData.hFind = INVALID_HANDLE_VALUE;
+#endif
     XListEnumerationContext context;
 
     context.xlist = xlist;
 
     char nativePattern[COMPAT_MAX_PATH];
+    if (strlen(pattern) >= sizeof(nativePattern)) {
+        return false;
+    }
     strcpy(nativePattern, pattern);
     compat_windows_path_to_native(nativePattern);
 
@@ -592,10 +643,14 @@ static bool xlistEnumerate(const char* pattern, XListEnumerationHandler* handler
                     context.type = XFILE_ENUMERATION_ENTRY_TYPE_FILE;
                 }
 
+                if (strlen(drive) + strlen(dir) + strlen(entryName) + 2 >= sizeof(context.name)) {
+                    continue;
+                }
                 compat_makepath(context.name, drive, dir, entryName, nullptr);
 
                 if (!handler(&context)) {
-                    break;
+                    findFindClose(&directoryFileFindData);
+                    return false;
                 }
             } while (fileFindNext(&directoryFileFindData));
         }
@@ -612,7 +667,8 @@ static bool xlistEnumerate(const char* pattern, XListEnumerationHandler* handler
                 do {
                     strcpy(context.name, dbaseFindData.fileName);
                     if (!handler(&context)) {
-                        return dbaseFindClose(xbase->dbase, &dbaseFindData);
+                        dbaseFindClose(xbase->dbase, &dbaseFindData);
+                        return false;
                     }
                 } while (dbaseFindNextEntry(xbase->dbase, &dbaseFindData));
 
@@ -638,10 +694,14 @@ static bool xlistEnumerate(const char* pattern, XListEnumerationHandler* handler
                         context.type = XFILE_ENUMERATION_ENTRY_TYPE_FILE;
                     }
 
+                    if (strlen(drive) + strlen(dir) + strlen(entryName) + 2 >= sizeof(context.name)) {
+                        continue;
+                    }
                     compat_makepath(context.name, drive, dir, entryName, nullptr);
 
                     if (!handler(&context)) {
-                        break;
+                        findFindClose(&directoryFileFindData);
+                        return false;
                     }
                 } while (fileFindNext(&directoryFileFindData));
             }
@@ -666,10 +726,14 @@ static bool xlistEnumerate(const char* pattern, XListEnumerationHandler* handler
                 context.type = XFILE_ENUMERATION_ENTRY_TYPE_FILE;
             }
 
+            if (strlen(drive) + strlen(dir) + strlen(entryName) + 2 >= sizeof(context.name)) {
+                continue;
+            }
             compat_makepath(context.name, drive, dir, entryName, nullptr);
 
             if (!handler(&context)) {
-                break;
+                findFindClose(&directoryFileFindData);
+                return false;
             }
         } while (fileFindNext(&directoryFileFindData));
     }
@@ -679,8 +743,8 @@ static bool xlistEnumerate(const char* pattern, XListEnumerationHandler* handler
 // 0x4DFF28
 bool xlistInit(const char* pattern, XList* xlist)
 {
-    xlistEnumerate(pattern, xlistEnumerateHandler, xlist);
-    return xlist->fileNamesLength != -1;
+    return xlistEnumerate(pattern, xlistEnumerateHandler, xlist)
+        && xlist->fileNamesLength != -1;
 }
 
 // 0x4DFF48

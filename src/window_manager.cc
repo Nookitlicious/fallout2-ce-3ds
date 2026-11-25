@@ -507,7 +507,8 @@ void windowDrawText(int win, const char* str, int width, int x, int y, int color
         return;
     }
 
-    if (window == nullptr) {
+    if (window == nullptr || str == nullptr || window->buffer == nullptr
+        || x < 0 || y < 0 || x >= window->width || y >= window->height || width < 0) {
         return;
     }
 
@@ -519,7 +520,7 @@ void windowDrawText(int win, const char* str, int width, int x, int y, int color
         }
     }
 
-    if (width + x > window->width) {
+    if (width > window->width - x) {
         if (!(color & 0x04000000)) {
             return;
         }
@@ -529,7 +530,7 @@ void windowDrawText(int win, const char* str, int width, int x, int y, int color
 
     buf = window->buffer + x + y * window->width;
 
-    if (fontGetLineHeight() + y > window->height) {
+    if (fontGetLineHeight() <= 0 || fontGetLineHeight() > window->height - y || width <= 0) {
         return;
     }
 

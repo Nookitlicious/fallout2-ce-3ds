@@ -34,6 +34,8 @@ static void mf_critter_inven_obj2(Program* program, int args);
 static void mf_dialog_obj(Program* program, int args);
 static void mf_get_cursor_mode(Program* program, int args);
 static void mf_get_flags(Program* program, int args);
+static void mf_get_ini_section(Program* program, int args);
+static void mf_get_ini_sections(Program* program, int args);
 static void mf_get_object_data(Program* program, int args);
 static void mf_get_text_width(Program* program, int args);
 static void mf_intface_redraw(Program* program, int args);
@@ -54,6 +56,8 @@ constexpr MetaruleInfo kMetarules[] = {
     { "dialog_obj", mf_dialog_obj, 0, 0 },
     { "get_cursor_mode", mf_get_cursor_mode, 0, 0 },
     { "get_flags", mf_get_flags, 1, 1 },
+    { "get_ini_section", mf_get_ini_section, 2, 2 },
+    { "get_ini_sections", mf_get_ini_sections, 1, 1 },
     { "get_object_data", mf_get_object_data, 2, 2 },
     { "get_text_width", mf_get_text_width, 1, 1 },
     { "intface_redraw", mf_intface_redraw, 0, 1 },
@@ -114,6 +118,19 @@ void mf_dialog_obj(Program* program, int args)
     } else {
         programStackPushPointer(program, nullptr);
     }
+}
+
+void mf_get_ini_section(Program* program, int args)
+{
+    const char* section = programStackPopString(program);
+    const char* fileName = programStackPopString(program);
+    programStackPushInteger(program, sfall_ini_get_section(program, fileName, section));
+}
+
+void mf_get_ini_sections(Program* program, int args)
+{
+    const char* fileName = programStackPopString(program);
+    programStackPushInteger(program, sfall_ini_get_sections(program, fileName));
 }
 
 void mf_get_cursor_mode(Program* program, int args)
@@ -257,7 +274,7 @@ void mf_tile_refresh_display(Program* program, int args)
 
 void sfall_metarule(Program* program, int args)
 {
-    static ProgramValue values[6];
+    ProgramValue values[6];
 
     for (int index = 0; index < args; index++) {
         values[index] = programStackPopValue(program);
@@ -265,7 +282,8 @@ void sfall_metarule(Program* program, int args)
 
     const char* metarule = programStackPopString(program);
 
-    for (int index = 0; index < args; index++) {
+    // Restore the original stack order after removing the metarule name.
+    for (int index = args - 1; index >= 0; index--) {
         programStackPushValue(program, values[index]);
     }
 

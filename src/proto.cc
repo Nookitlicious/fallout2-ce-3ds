@@ -1,4 +1,8 @@
 #include "proto.h"
+#include "o3ds_proto_index.h"
+#include "o3ds_v8_options.h"
+#include "o3ds_v101_options.h"
+#include "o3ds_party_snapshot.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -24,7 +28,6 @@
 
 namespace fallout {
 
-static int objectCritterCombatDataRead(CritterCombatData* data, File* stream);
 static int objectCritterCombatDataWrite(CritterCombatData* data, File* stream);
 static int _proto_update_gen(Object* obj);
 static int _proto_header_load();
@@ -195,55 +198,111 @@ void proto_make_path(char* path, int pid)
     }
 }
 
+// File name indices are independent of mutable Proto objects and survive map changes.
+static O3dsProtoIndex protoNameIndices[6];
+static O3dsPartySnapshots partySnapshots;
+void protoClearPartySnapshots() { partySnapshots.clear(); }
+static bool partySnapshotPath(int pid, const char* filename, char* path, size_t capacity) {
+    if (!o3dsV8FastIo() || PID_TYPE(pid) != OBJ_TYPE_CRITTER || _cd_path_base[0] != 0 || !filename || !*filename || strpbrk(filename, "\\/:") || strcmp(filename, ".") == 0 || strcmp(filename, "..") == 0) return false;
+    int n = snprintf(path, capacity, "proto\\critters\\%s", filename);
+    return n >= 0 && static_cast<size_t>(n) < capacity
+        && settings.system.master_patches_path.size() + static_cast<size_t>(n) + 2 <= COMPAT_MAX_PATH
+        && xfilePrimaryLoosePath(path, settings.system.master_patches_path.c_str());
+}
+void protoRememberRestored(int pid, const char* filename, const unsigned char* bytes, size_t size) {
+    partySnapshots.forget(pid);
+    char path[COMPAT_MAX_PATH];
+    if (partySnapshotPath(pid, filename, path, sizeof(path))) partySnapshots.remember(pid, path, bytes, size);
+}
+// Only defer the stock game's canonical, highest-priority loose critter paths.
+// The original saved slot remains the permanent source; this table represents
+// the private working copy until it is first used or an explicit save needs it.
+bool protoCanDeferRestored(int pid, const char* filename) {
+    char path[COMPAT_MAX_PATH];
+    return o3dsV101DeferredProtos()
+        && settings.system.master_patches_path == "data"
+        && settings.system.critter_patches_path == "data"
+        && filename && strlen(filename) == 12 && compat_stricmp(filename + 8, ".pro") == 0
+        && filename[0] >= '0' && filename[0] <= '9'
+        && strspn(filename, "0123456789") == 8
+        && partySnapshotPath(pid, filename, path, sizeof(path));
+}
+bool protoDeferRestored(int pid, const char* filename, const unsigned char* bytes, size_t size) {
+    char path[COMPAT_MAX_PATH];
+    if (!protoCanDeferRestored(pid, filename) || !partySnapshotPath(pid, filename, path, sizeof(path))) return false;
+    return partySnapshots.remember(pid, path, bytes, size, true);
+}
+int protoMaterializePending(int pid) {
+    const char* path = partySnapshots.pendingPath(pid);
+    if (!path) return 0;
+    const unsigned char* bytes = partySnapshots.find(pid, path);
+    if (!bytes) return -1;
+    char physical[COMPAT_MAX_PATH];
+    int n = snprintf(physical, sizeof(physical), "%s\\%s", settings.system.master_patches_path.c_str(), path);
+    if (n < 0 || static_cast<size_t>(n) >= sizeof(physical)) return -1;
+    FILE* out = compat_fopen(physical, "wb");
+    if (!out) return -1;
+    bool ok = fwrite(bytes, 1, O3DS_CRITTER_PROTO_BYTES, out) == O3DS_CRITTER_PROTO_BYTES;
+    if (fclose(out) != 0) ok = false;
+    if (!ok) return -1;
+    partySnapshots.markMaterialized(pid);
+    return 0;
+}
+static Proto* findResidentProto(int pid) {
+    int type = PID_TYPE(pid);
+    if (type < 0 || type >= 6) return nullptr;
+    for (ProtoListExtent* ext = _protoLists[type].head; ext; ext = ext->next) {
+        for (int i = 0; i < ext->length; ++i) if (ext->proto[i]->pid == pid) return ext->proto[i];
+    }
+    return nullptr;
+}
+// The mutable prototype cache still owns all objects. This is only a tiny
+// non-owning lookup accelerator; invalidate before any extent is freed.
+static Proto* hotProtos[6][128] = {};
+static void invalidateHotProtos(int type) { memset(hotProtos[type], 0, sizeof(hotProtos[type])); }
+static unsigned int hotProtoSlot(int pid) { return (static_cast<unsigned int>(pid) * 2654435761u) >> 25; }
+static void clearProtoNameIndices() { for (auto& index : protoNameIndices) index.clear(); }
+
 // Append proto file name to proto_path from proto.lst.
 //
 // 0x49E758
 int _proto_list_str(int pid, char* proto_path)
 {
-    if (pid == -1) {
-        return -1;
+    int type = PID_TYPE(pid);
+    unsigned int number = pid & 0xFFFFFF;
+    if (pid == -1 || proto_path == nullptr || type < 0 || type >= 6 || number == 0) return -1;
+    if (o3dsV7FastIo()) {
+        const char* cached = protoNameIndices[type].lookup(number);
+        if (cached) { strcpy(proto_path, cached); return 0; }
     }
-
-    if (proto_path == nullptr) {
-        return -1;
-    }
-
     char path[COMPAT_MAX_PATH];
     proto_make_path(path, pid);
     strcat(path, "\\");
-    strcat(path, artGetObjectTypeName(PID_TYPE(pid)));
+    strcat(path, artGetObjectTypeName(type));
     strcat(path, ".lst");
-
-    File* stream = fileOpen(path, "rt");
-
-    int i = 1;
-    char string[256];
-    while (fileReadString(string, sizeof(string), stream)) {
-        if (i == (pid & 0xFFFFFF)) {
-            break;
+    if (o3dsV7FastIo()) {
+        O3dsProtoIndex& index = protoNameIndices[type];
+        if (!index.attempted()) {
+            File* file = fileOpen(path, "rt");
+            if (file) { index.load(file); fileClose(file); }
         }
-
-        i++;
+        const char* name = index.lookup(number);
+        if (name) { strcpy(proto_path, name); return 0; }
     }
-
+    File* stream = fileOpen(path, "rt");
+    if (!stream) return -1;
+    O3dsTextReader reader(stream);
+    char string[256];
+    unsigned int i = 1;
+    bool found = false;
+    while (reader.readLine(string, sizeof(string))) {
+        if (i == number) { found = true; break; }
+        ++i;
+    }
     fileClose(stream);
-
-    if (i != (pid & 0xFFFFFF)) {
-        return -1;
-    }
-
-    char* pch = strchr(string, ' ');
-    if (pch != nullptr) {
-        *pch = '\0';
-    }
-
-    pch = strpbrk(string, "\r\n");
-    if (pch != nullptr) {
-        *pch = '\0';
-    }
-
+    if (!found) return -1;
+    O3dsProtoIndex::trim(string);
     strcpy(proto_path, string);
-
     return 0;
 }
 
@@ -522,30 +581,11 @@ void objectDataReset(Object* obj)
     memset(&(obj->data), 0, sizeof(obj->data));
 }
 
-// 0x49EEB8
-static int objectCritterCombatDataRead(CritterCombatData* data, File* stream)
-{
-    if (fileReadInt32(stream, &(data->damageLastTurn)) == -1) return -1;
-    if (fileReadInt32(stream, &(data->maneuver)) == -1) return -1;
-    if (fileReadInt32(stream, &(data->ap)) == -1) return -1;
-    if (fileReadInt32(stream, &(data->results)) == -1) return -1;
-    if (fileReadInt32(stream, &(data->aiPacket)) == -1) return -1;
-    if (fileReadInt32(stream, &(data->team)) == -1) return -1;
-    if (fileReadInt32(stream, &(data->whoHitMeCid)) == -1) return -1;
-
-    return 0;
-}
-
 // 0x49EF40
 static int objectCritterCombatDataWrite(CritterCombatData* data, File* stream)
 {
-    if (fileWriteInt32(stream, data->damageLastTurn) == -1) return -1;
-    if (fileWriteInt32(stream, data->maneuver) == -1) return -1;
-    if (fileWriteInt32(stream, data->ap) == -1) return -1;
-    if (fileWriteInt32(stream, data->results) == -1) return -1;
-    if (fileWriteInt32(stream, data->aiPacket) == -1) return -1;
-    if (fileWriteInt32(stream, data->team) == -1) return -1;
-    if (fileWriteInt32(stream, data->whoHitMeCid) == -1) return -1;
+    int words[] = { data->damageLastTurn, data->maneuver, data->ap, data->results, data->aiPacket, data->team, data->whoHitMeCid };
+    if (fileWriteInt32List(stream, words, 7) == -1) return -1;
 
     return 0;
 }
@@ -554,22 +594,30 @@ static int objectCritterCombatDataWrite(CritterCombatData* data, File* stream)
 int objectDataRead(Object* obj, File* stream)
 {
     Proto* proto;
-    int temp;
-
+    int header[4];
+    if (fileReadInt32List(stream, header, 4) == -1) return -1;
     Inventory* inventory = &(obj->data.inventory);
-    if (fileReadInt32(stream, &(inventory->length)) == -1) return -1;
-    if (fileReadInt32(stream, &(inventory->capacity)) == -1) return -1;
-    // CE: Original code reads inventory items pointer which is meaningless.
-    if (fileReadInt32(stream, &temp) == -1) return -1;
-
+    inventory->length = header[0];
+    inventory->capacity = header[1];
+    // Header[2] is the unused original inventory pointer.
     if (PID_TYPE(obj->pid) == OBJ_TYPE_CRITTER) {
-        if (fileReadInt32(stream, &(obj->data.critter.field_0)) == -1) return -1;
-        if (objectCritterCombatDataRead(&(obj->data.critter.combat), stream) == -1) return -1;
-        if (fileReadInt32(stream, &(obj->data.critter.hp)) == -1) return -1;
-        if (fileReadInt32(stream, &(obj->data.critter.radiation)) == -1) return -1;
-        if (fileReadInt32(stream, &(obj->data.critter.poison)) == -1) return -1;
+        obj->data.critter.field_0 = header[3];
+        // Combat state and health are ten consecutive big-endian words.
+        int words[10];
+        if (fileReadInt32List(stream, words, 10) == -1) return -1;
+        CritterCombatData& combat = obj->data.critter.combat;
+        combat.damageLastTurn = words[0];
+        combat.maneuver = words[1];
+        combat.ap = words[2];
+        combat.results = words[3];
+        combat.aiPacket = words[4];
+        combat.team = words[5];
+        combat.whoHitMeCid = words[6];
+        obj->data.critter.hp = words[7];
+        obj->data.critter.radiation = words[8];
+        obj->data.critter.poison = words[9];
     } else {
-        if (fileReadInt32(stream, &(obj->data.flags)) == -1) return -1;
+        obj->data.flags = header[3];
 
         if (obj->data.flags == 0xCCCCCCCC) {
             debugPrint("\nNote: Reading pud: updated_flags was un-Set!");
@@ -653,20 +701,15 @@ int objectDataWrite(Object* obj, File* stream)
     Proto* proto;
 
     ObjectData* data = &(obj->data);
-    if (fileWriteInt32(stream, data->inventory.length) == -1) return -1;
-    if (fileWriteInt32(stream, data->inventory.capacity) == -1) return -1;
-    // CE: Original code writes inventory items pointer, which is meaningless.
-    if (fileWriteInt32(stream, 0) == -1) return -1;
+    int header[] = { data->inventory.length, data->inventory.capacity, 0, data->flags };
+    if (fileWriteInt32List(stream, header, 4) == -1) return -1;
 
     if (PID_TYPE(obj->pid) == OBJ_TYPE_CRITTER) {
-        if (fileWriteInt32(stream, data->flags) == -1) return -1;
         if (objectCritterCombatDataWrite(&(obj->data.critter.combat), stream) == -1) return -1;
         if (fileWriteInt32(stream, data->critter.hp) == -1) return -1;
         if (fileWriteInt32(stream, data->critter.radiation) == -1) return -1;
         if (fileWriteInt32(stream, data->critter.poison) == -1) return -1;
     } else {
-        if (fileWriteInt32(stream, data->flags) == -1) return -1;
-
         switch (PID_TYPE(obj->pid)) {
         case OBJ_TYPE_ITEM:
             if (protoGetProto(obj->pid, &proto) == -1) return -1;
@@ -1465,6 +1508,8 @@ int protoInit()
 // 0x4A0814
 void protoReset()
 {
+    protoClearPartySnapshots();
+    clearProtoNameIndices();
     int i;
 
     // TODO: Get rid of cast.
@@ -1489,6 +1534,8 @@ void protoReset()
 // 0x4A0898
 void protoExit()
 {
+    protoClearPartySnapshots();
+    clearProtoNameIndices();
     int i;
 
     for (i = 0; i < 6; i++) {
@@ -1510,6 +1557,7 @@ void protoExit()
 static int _proto_header_load()
 {
     for (int index = 0; index < 6; index++) {
+        invalidateHotProtos(index);
         ProtoList* ptr = &(_protoLists[index]);
         ptr->head = nullptr;
         ptr->tail = nullptr;
@@ -1527,9 +1575,10 @@ static int _proto_header_load()
             return -1;
         }
 
+        O3dsTextReader reader(stream);
         int ch = '\0';
         while (1) {
-            ch = fileReadChar(stream);
+            ch = reader.readChar();
             if (ch == -1) {
                 break;
             }
@@ -1921,6 +1970,36 @@ static int protoWrite(Proto* proto, File* stream)
 // 0x4A1B30
 int _proto_save_pid(int pid)
 {
+    if (o3dsV8FastIo() && PID_TYPE(pid) == OBJ_TYPE_CRITTER) {
+        char filename[COMPAT_MAX_PATH], path[COMPAT_MAX_PATH];
+        if (_proto_list_str(pid, filename) == 0 && partySnapshotPath(pid, filename, path, sizeof(path))) {
+            const unsigned char* persisted = partySnapshots.find(pid, path);
+            Proto* proto = findResidentProto(pid);
+            // If no live copy exists, no unsaved mutation can be present in the
+            // engine cache. A confirmed persisted record needs no reloading.
+            if (persisted && !proto) return 0;
+            if (!proto && protoGetProto(pid, &proto) == -1) return -1;
+            if (proto->pid != pid) { partySnapshots.forget(pid); return -1; }
+            unsigned char bytes[O3DS_CRITTER_PROTO_BYTES];
+            o3dsEncodeCritter(proto->critter, bytes);
+            if (persisted && memcmp(persisted, bytes, sizeof(bytes)) == 0) return 0;
+            if (protoMaterializePending(pid) == -1) return -1;
+            partySnapshots.forget(pid);
+            // Open the precise directory whose bytes we are tracking. If it
+            // cannot be opened, let the original XFile fallback search run.
+            char physical[COMPAT_MAX_PATH];
+            int n = snprintf(physical, sizeof(physical), "%s\\%s", settings.system.master_patches_path.c_str(), path);
+            FILE* stream = n >= 0 && static_cast<size_t>(n) < sizeof(physical) ? compat_fopen(physical, "wb") : nullptr;
+            if (stream) {
+                int rc = fwrite(bytes, 1, sizeof(bytes), stream) == sizeof(bytes) ? 0 : -1;
+                if (fclose(stream) != 0) rc = -1;
+                if (rc == 0) partySnapshots.remember(pid, path, bytes, sizeof(bytes));
+                return rc;
+            }
+        }
+    }
+    if (protoMaterializePending(pid) == -1) return -1;
+    partySnapshots.forget(pid);
     Proto* proto;
     if (protoGetProto(pid, &proto) == -1) {
         return -1;
@@ -1930,7 +2009,9 @@ int _proto_save_pid(int pid)
     proto_make_path(path, pid);
     strcat(path, "\\");
 
-    _proto_list_str(pid, path + strlen(path));
+    char filename[COMPAT_MAX_PATH];
+    if (_proto_list_str(pid, filename) == -1 || strlen(path) + strlen(filename) >= sizeof(path)) return -1;
+    strcat(path, filename);
 
     File* stream = fileOpen(path, "wb");
     if (stream == nullptr) {
@@ -1939,7 +2020,7 @@ int _proto_save_pid(int pid)
 
     int rc = protoWrite(proto, stream);
 
-    fileClose(stream);
+    if (fileClose(stream) != 0) rc = -1;
 
     return rc;
 }
@@ -1947,13 +2028,14 @@ int _proto_save_pid(int pid)
 // 0x4A1C3C
 static int _proto_load_pid(int pid, Proto** protoPtr)
 {
+    if (protoMaterializePending(pid) == -1) { *protoPtr = nullptr; return -1; }
     char path[COMPAT_MAX_PATH];
     proto_make_path(path, pid);
     strcat(path, "\\");
 
-    if (_proto_list_str(pid, path + strlen(path)) == -1) {
-        return -1;
-    }
+    char filename[COMPAT_MAX_PATH];
+    if (_proto_list_str(pid, filename) == -1 || strlen(path) + strlen(filename) >= sizeof(path)) return -1;
+    strcat(path, filename);
 
     File* stream = fileOpen(path, "rb");
     if (stream == nullptr) {
@@ -1991,7 +2073,7 @@ static int _proto_find_free_subnode(int type, Proto** protoPtr)
     if (protoList->head != nullptr) {
         if (protoListExtent->length == PROTO_LIST_EXTENT_SIZE) {
             ProtoListExtent* newExtent = protoListExtent->next = (ProtoListExtent*)internal_malloc(sizeof(ProtoListExtent));
-            if (protoListExtent == nullptr) {
+            if (newExtent == nullptr) {
                 internal_free(proto);
                 *protoPtr = nullptr;
                 return -1;
@@ -2030,6 +2112,7 @@ static int _proto_find_free_subnode(int type, Proto** protoPtr)
 // 0x4A1E90
 int proto_new(int* pid, int type)
 {
+    if (type >= 0 && type < 6) protoNameIndices[type].clear();
     Proto* proto;
 
     if (_proto_find_free_subnode(type, &proto) == -1) {
@@ -2074,6 +2157,7 @@ int proto_new(int* pid, int type)
 // 0x4A2040
 static void _proto_remove_some_list(int type)
 {
+    invalidateHotProtos(type);
     ProtoList* protoList = &(_protoLists[type]);
     ProtoListExtent* protoListExtent = protoList->head;
     if (protoListExtent != nullptr) {
@@ -2093,6 +2177,7 @@ static void _proto_remove_some_list(int type)
 // 0x4A2094
 static void _proto_remove_list(int type)
 {
+    invalidateHotProtos(type);
     ProtoList* protoList = &(_protoLists[type]);
 
     ProtoListExtent* curr = protoList->head;
@@ -2135,13 +2220,18 @@ int protoGetProto(int pid, Proto** protoPtr)
         return 0;
     }
 
-    ProtoList* protoList = &(_protoLists[PID_TYPE(pid)]);
+    int type = PID_TYPE(pid);
+    if (type < 0 || type >= 6) return -1;
+    Proto*& hot = hotProtos[type][hotProtoSlot(pid)];
+    if (o3dsV7FastIo() && hot && hot->pid == pid) { *protoPtr = hot; return 0; }
+    ProtoList* protoList = &(_protoLists[type]);
     ProtoListExtent* protoListExtent = protoList->head;
     while (protoListExtent != nullptr) {
         for (int index = 0; index < protoListExtent->length; index++) {
             Proto* proto = (Proto*)protoListExtent->proto[index];
             if (pid == proto->pid) {
                 *protoPtr = proto;
+                if (o3dsV7FastIo()) hot = proto;
                 return 0;
             }
         }
@@ -2154,7 +2244,9 @@ int protoGetProto(int pid, Proto** protoPtr)
         }
     }
 
-    return _proto_load_pid(pid, protoPtr);
+    int rc = _proto_load_pid(pid, protoPtr);
+    if (rc == 0 && o3dsV7FastIo()) hot = *protoPtr;
+    return rc;
 }
 
 // 0x4A21DC

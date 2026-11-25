@@ -1,9 +1,10 @@
 #include <iostream>
 #include <stdlib.h>
+#include <cmath>
 
 #include "ctr_rectmap.h"
+#include "ctr_main_menu_layout.h"
 #include "ctr_input.h"
-#include "ctr_gfx.h"
 
 //#include "plib/gnw/gnw.h"
 //#include "game/loadsave.h"
@@ -80,19 +81,25 @@ void setActiveRectMap(rectMap_e rectmap)
         ctr_rectMap.main = rectmap;
     }
 
-    if (ctr_input.mode != DISPLAY_MODE_ADAPT)
+    if (isGameplayRectMap(ctr_rectMap.main) && ctr_input.mode != DISPLAY_MODE_ADAPT)
         ctr_rectMap.active = DISPLAY_FULL;
     else
         ctr_rectMap.active = ctr_rectMap.main;
 
-    if (ctr_rectMap.main == DISPLAY_GUI)
+    if (ctr_rectMap.active == DISPLAY_GUI)
         ctr_input_center_mouse();
+}
+
+void restoreGameplayRectMap(rectMap_e previous)
+{
+    ctr_input.mode = DISPLAY_MODE_ADAPT;
+    setActiveRectMap(isGameplayRectMap(previous) ? previous : DISPLAY_GUI);
 }
 
 void setPreviousRectMap(int index)
 {
     if (index >= 0 && index <= 2) {
-        ctr_rectMap.prev[index] = ctr_rectMap.active;
+        ctr_rectMap.prev[index] = ctr_rectMap.main;
     }
 }
 
@@ -256,7 +263,10 @@ void ctr_rectmap_init()
     addRectMap(DISPLAY_FIELD,             0,   0,   0, 400, 240,   0,   0, 400, 240);
     addRectMap(DISPLAY_MOVIE,             0, 0,  80, 640, 320,  0,   20, 400, 200);
     addRectMap(DISPLAY_MOVIE_SUB,         0, 105, 401, 430,  80,   0,  60, 320, 120);
-    addRectMap(DISPLAY_MAIN,              0, 400,  25, 215, 230,  43,   0, 234, 240);
+    // Original left-hand metal plates, including all of the EXIT row.
+    addRectMap(DISPLAY_MAIN, 0, ctr_menu::BottomSrcX, ctr_menu::BottomSrcY,
+        ctr_menu::BottomSrcW, ctr_menu::BottomSrcH, ctr_menu::BottomDstX,
+        ctr_menu::BottomDstY, ctr_menu::BottomDstW, ctr_menu::BottomDstH);
 
     addRectMap(DISPLAY_GUI,               0,   5, 380, 200, 100,   0, 100, 200, 100); // monitor
     addRectMap(DISPLAY_GUI,               1, 520, 380, 140, 100, 200, 100, 140, 100); // skill pip
@@ -270,9 +280,9 @@ void ctr_rectmap_init()
     addRectMap(DISPLAY_PAUSE,             0, 240,  72, 160, 215,  71,   0, 178, 240);
 
     addRectMap(DISPLAY_DIALOG_TOP,        0,  80,   0, 480, 290,   0,   0, 397, 240);
-    addRectMap(DISPLAY_DIALOG_TOP,        1, 130, 230, 390,  60,  10,   0, 380,  60); // dialog
+    addRectMap(DISPLAY_DIALOG_TOP,        1, 130, 225, 390,  65,  10,   0, 380,  60); // full reply window
 
-    addRectMap(DISPLAY_DIALOG,            0, 145, 320, 345, 160,   0,  80, 320, 160); // bottom dialog
+    addRectMap(DISPLAY_DIALOG,            0, 120, 320, 407, 160,   0,  80, 320, 160); // full options window + margins
     addRectMap(DISPLAY_DIALOG,            1,   5, 440,  70,  37,  45,  10,  70,  37); // bottom review
     addRectMap(DISPLAY_DIALOG,            2, 575, 324,  50,  28, 135,  15,  50,  28); // bottom barter
     addRectMap(DISPLAY_DIALOG,            3, 575, 399,  50,  28, 210,  15,  50,  28); // bottom about
@@ -296,7 +306,10 @@ void ctr_rectmap_init()
     addRectMap(DISPLAY_INVENTORY_TRADE,   4, 560, 290,  80, 140, 260,   0,  60,  80); // during barter
 
     addRectMap(DISPLAY_WORLDMAP,          0,   0,   0, 640, 480,   0,   0, 320, 240);
-    addRectMap(DISPLAY_PIPBOY,            0,   0,   0, 640, 480,   0,   0, 320, 240);
+    addRectMap(DISPLAY_PIPBOY,            0,   0, 330, 254, 150,   0,   0, 320, 190);
+    addRectMap(DISPLAY_PIPBOY,            1,   0,   0, 254,  40,   0, 190, 320,  50);
+    addRectMap(DISPLAY_AUTOMAP, 0, 60, 0, 519, 480, 30, 0, 260, 240);
+    addRectMap(DISPLAY_SAVE_COMMENT, 0, 0, 0, 1, 1, 0, 0, 1, 1);
 
     addRectMap(DISPLAY_CHAR_SELECT,       0,   0,   0, 640, 480,   0,   0, 320, 240); // char selection at game start
 
@@ -325,6 +338,7 @@ void ctr_rectmap_init()
     addRectMap(DISPLAY_LOADSAVE_BACK,     0,  20,  20, 290, 200,   0,  40, 320, 200); // frame top
     addRectMap(DISPLAY_LOADSAVE_BACK,     1,  20, 440, 290,  20,   0,   0, 320,  40); // frame bottom
 
+    addRectMap(DISPLAY_MODS, 0, 160, 240, 320, 240, 0, 0, 320, 240);
     addRectMap(DISPLAY_OPTIONS,           0,   0,   0, 640, 480,   0,   0, 320, 240); // preferences TODO
 
     addRectMap(DISPLAY_ENDGAME,           0,   0,   0, 640, 480,   0,   0, 320, 240); // TODO

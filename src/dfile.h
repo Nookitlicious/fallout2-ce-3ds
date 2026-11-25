@@ -29,6 +29,9 @@ typedef struct DBase {
 
     // The head of linked list of open file handles.
     DFile* dfileHead;
+
+    // One idle read-only archive handle, never shared by active DFiles.
+    FILE* idleStream;
 } DBase;
 
 typedef struct DBaseEntry {

@@ -9,6 +9,7 @@
 
 #include "art.h"
 #include "color.h"
+#include "o3ds_lighting.h"
 #include "config.h"
 #include "debug.h"
 #include "draw.h"
@@ -1235,22 +1236,7 @@ void tileRenderRoofsInRect(Rect* rect, int elevation)
     squareTileScreenToCoordRoof(rect->left, rect->bottom, elevation, &maxX, &temp);
     squareTileScreenToCoordRoof(rect->right, rect->bottom, elevation, &temp, &maxY);
 
-    if (minX < 0) {
-        minX = 0;
-    }
-
-    if (minX >= gSquareGridWidth) {
-        minX = gSquareGridWidth - 1;
-    }
-
-    if (minY < 0) {
-        minY = 0;
-    }
-
-    // FIXME: Probably a bug - testing X, then changing Y.
-    if (minX >= gSquareGridHeight) {
-        minY = gSquareGridHeight - 1;
-    }
+    if (!o3dsClipSquareBounds(minX, minY, maxX, maxY, gSquareGridWidth, gSquareGridHeight)) return;
 
     int light = lightGetAmbientIntensity();
 
@@ -1448,21 +1434,7 @@ void tileRenderFloorsInRect(Rect* rect, int elevation)
     squareTileScreenToCoord(rect->left, rect->bottom, elevation, &maxX, &temp);
     squareTileScreenToCoord(rect->right, rect->bottom, elevation, &temp, &maxY);
 
-    if (minX < 0) {
-        minX = 0;
-    }
-
-    if (minX >= gSquareGridWidth) {
-        minX = gSquareGridWidth - 1;
-    }
-
-    if (minY < 0) {
-        minY = 0;
-    }
-
-    if (minX >= gSquareGridHeight) {
-        minY = gSquareGridHeight - 1;
-    }
+    if (!o3dsClipSquareBounds(minX, minY, maxX, maxY, gSquareGridWidth, gSquareGridHeight)) return;
 
     lightGetAmbientIntensity();
 
@@ -1497,6 +1469,7 @@ bool _square_roof_intersect(int x, int y, int elevation)
     int tileY;
     squareTileScreenToCoordRoof(x, y, elevation, &tileX, &tileY);
 
+    if (tileX < 0 || tileX >= gSquareGridWidth || tileY < 0 || tileY >= gSquareGridHeight) return false;
     TileData* ptr = gTileSquares[elevation];
     int idx = gSquareGridWidth * tileY + tileX;
     int upper = ptr->field_0[gSquareGridWidth * tileY + tileX] >> 16;
@@ -1514,7 +1487,9 @@ bool _square_roof_intersect(int x, int y, int elevation)
                     squareTileToRoofScreenXY(idx, &v18, &v17, elevation);
 
                     int width = artGetWidth(art, 0, 0);
-                    if (data[width * (y - v17) + x - v18] != 0) {
+                    int height = artGetHeight(art, 0, 0);
+                    int px = x - v18, py = y - v17;
+                    if (px >= 0 && px < width && py >= 0 && py < height && data[width * py + px] != 0) {
                         result = true;
                     }
                 }

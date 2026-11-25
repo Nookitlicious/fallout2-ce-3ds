@@ -164,29 +164,30 @@ static int interfaceFontLoad(int font_index)
     }
     interfaceFontByteSwapInt16(&(fontDescriptor->lineSpacing));
 
+    // AAF's glyph table consists of 256 big-endian 8-byte records.
+    // One bulk read avoids 768 small archive reads at startup.
+    static_assert(sizeof(InterfaceFontGlyph) == 8, "AAF glyph layout");
+    int glyphDataSize = fileSize - 2060;
+    if (fileSize <= 2060 || fontDescriptor->maxHeight <= 0
+        || fileRead(fontDescriptor->glyphs, sizeof(InterfaceFontGlyph), 256, stream) != 256) {
+        fileClose(stream);
+        return -1;
+    }
     for (int index = 0; index < 256; index++) {
         InterfaceFontGlyph* glyph = &(fontDescriptor->glyphs[index]);
-
-        if (fileRead(&(glyph->width), 2, 1, stream) != 1) {
+        interfaceFontByteSwapInt16(&glyph->width);
+        interfaceFontByteSwapInt16(&glyph->height);
+        interfaceFontByteSwapInt32(&glyph->offset);
+        if (glyph->width < 0 || glyph->height < 0 || glyph->height > fontDescriptor->maxHeight
+            || (glyph->width != 0 && glyph->height != 0 && (glyph->offset < 0
+                || glyph->offset > glyphDataSize
+                || (unsigned int)glyph->width * glyph->height > (unsigned int)(glyphDataSize - glyph->offset)))) {
             fileClose(stream);
             return -1;
         }
-        interfaceFontByteSwapInt16(&(glyph->width));
-
-        if (fileRead(&(glyph->height), 2, 1, stream) != 1) {
-            fileClose(stream);
-            return -1;
-        }
-        interfaceFontByteSwapInt16(&(glyph->height));
-
-        if (fileRead(&(glyph->offset), 4, 1, stream) != 1) {
-            fileClose(stream);
-            return -1;
-        }
-        interfaceFontByteSwapInt32(&(glyph->offset));
+        // Empty glyphs need no pixels, even if the on-disk offset is a sentinel.
+        if (glyph->width == 0 || glyph->height == 0) glyph->offset = 0;
     }
-
-    int glyphDataSize = fileSize - 2060;
 
     fontDescriptor->data = (unsigned char*)internal_malloc_safe(glyphDataSize, __FILE__, __LINE__); // FONTMGR.C, 259
     if (fontDescriptor->data == nullptr) {
@@ -212,6 +213,7 @@ static void interfaceFontSetCurrentImpl(int font)
     }
 
     font -= 100;
+    if (font < 0 || font >= INTERFACE_FONT_MAX) return;
 
     if (gInterfaceFontDescriptors[font].data != nullptr) {
         gCurrentInterfaceFont = font;
@@ -232,7 +234,7 @@ static int interfaceFontGetLineHeightImpl()
 // 0x442188
 static int interfaceFontGetStringWidthImpl(const char* string)
 {
-    if (!gInterfaceFontsInitialized) {
+    if (!gInterfaceFontsInitialized || string == nullptr) {
         return 0;
     }
 
@@ -263,6 +265,8 @@ static int interfaceFontGetCharacterWidthImpl(int ch)
         return 0;
     }
 
+    if (ch < -128 || ch > 255) return 0;
+    ch = static_cast<unsigned char>(ch);
     if (ch == ' ') {
         width = gCurrentInterfaceFontDescriptor->wordSpacing;
     } else {
@@ -275,7 +279,7 @@ static int interfaceFontGetCharacterWidthImpl(int ch)
 // 0x442210
 static int interfaceFontGetMonospacedStringWidthImpl(const char* str)
 {
-    if (!gInterfaceFontsInitialized) {
+    if (!gInterfaceFontsInitialized || str == nullptr) {
         return 0;
     }
 
@@ -322,7 +326,7 @@ static int interfaceFontGetMonospacedCharacterWidthImpl()
 // 0x4422B4
 static void interfaceFontDrawImpl(unsigned char* buf, const char* string, int length, int pitch, int color)
 {
-    if (!gInterfaceFontsInitialized) {
+    if (!gInterfaceFontsInitialized || string == nullptr || buf == nullptr || length <= 0 || pitch <= 0) {
         return;
     }
 
@@ -334,6 +338,7 @@ static void interfaceFontDrawImpl(unsigned char* buf, const char* string, int le
     }
 
     unsigned char* palette = _getColorBlendTable(color & 0xFF);
+    if (palette == nullptr) return;
 
     int monospacedCharacterWidth;
     if ((color & FONT_MONO) != 0) {

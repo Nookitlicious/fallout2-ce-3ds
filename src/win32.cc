@@ -18,6 +18,9 @@
 
 #ifdef __3DS__
 #include "3ds.h"
+#include "platform/ctr/ctr_mod_profiles.h"
+#include "platform/ctr/ctr_gfx.h"
+#include "platform/ctr/ctr_rectmap.h"
 
 u32 __ctru_heap_size = 0;
 u32 __ctru_linear_heap_size = 32 * 1024 * 1024;
@@ -68,7 +71,16 @@ int main(int argc, char* argv[])
     SDL_SetHint(SDL_HINT_TOUCH_MOUSE_EVENTS, "0");
 
     osSetSpeedupEnable(true);
-    chdir("sdmc:/3ds/fallout2/");
+chdir("sdmc:/3ds/fallout2/");
+    ctrModProfileStartup();
+
+// Prevent crashes when launched without arguments.
+if (argc <= 0 || argv == nullptr || argv[0] == nullptr) {
+    static char executableName[] = "fallout2";
+    static char* fallbackArgv[] = { executableName, nullptr };
+    argc = 1;
+    argv = fallbackArgv;
+}
 #else
 
     if (SDL_Init(SDL_INIT_AUDIO | SDL_INIT_VIDEO | SDL_INIT_EVENTS) != 0) {
@@ -81,6 +93,15 @@ int main(int argc, char* argv[])
 #endif
     gProgramIsActive = true;
     rc = falloutMain(argc, argv);
+#ifdef __3DS__
+    ctrModProfileStage("falloutMain returned; explicit renderer shutdown begins");
+    ctr_gfx_exit();
+    ctr_rectmap_exit();
+    directDrawFree();
+    ctrModProfileStage("SDL shutdown begins");
+    SDL_Quit();
+    ctrModProfileStage("SDL shutdown complete; runtime shutdown follows");
+#endif
 
 #if _WIN32
     CloseHandle(GNW95_mutex);

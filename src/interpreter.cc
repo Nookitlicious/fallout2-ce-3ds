@@ -1,6 +1,7 @@
 #include "interpreter.h"
 
 #include <assert.h>
+#include <stdint.h>
 #include <limits.h>
 #include <stdarg.h>
 #include <stdio.h>
@@ -16,6 +17,9 @@
 #include "platform_compat.h"
 #include "sfall_global_scripts.h"
 #include "svga.h"
+#ifdef __3DS__
+#include "platform/ctr/ctr_mod_profiles.h"
+#endif
 
 namespace fallout {
 
@@ -159,6 +163,8 @@ static OpcodeHandler* gInterpreterOpcodeHandlers[OPCODE_MAX_COUNT];
 
 // 0x59E78C
 static Program* gInterpreterCurrentProgram;
+// Each live interpreter invocation owns its recovery target.
+static jmp_buf* gInterpreterRecovery = nullptr;
 
 // 0x59E790
 static ProgramListNode* gInterpreterProgramListHead;
@@ -256,18 +262,23 @@ static char* programGetCurrentProcedureName(Program* program)
     vsnprintf(string, sizeof(string), format, argptr);
     va_end(argptr);
 
+#ifdef __3DS__
+    if (ctrModProfileActive()) {
+        char diagnostic[640];
+        Program* current = gInterpreterCurrentProgram;
+        snprintf(diagnostic, sizeof(diagnostic), "Script fatal: %.120s ip=%d opcode=0x%04x: %.259s",
+            current && current->name ? current->name : "<none>",
+            current ? current->instructionPointer : -1,
+            current ? (static_cast<unsigned int>(current->flags) >> 16) : 0u, string);
+        ctrModProfileStage(diagnostic);
+    }
+#endif
     debugPrint("\nError during execution: %s\n", string);
-
-    if (gInterpreterCurrentProgram == nullptr) {
-        debugPrint("No current script");
-    } else {
-        char* procedureName = programGetCurrentProcedureName(gInterpreterCurrentProgram);
-        debugPrint("Current script: %s, procedure %s", gInterpreterCurrentProgram->name, procedureName);
+    if (gInterpreterRecovery != nullptr) {
+        longjmp(*gInterpreterRecovery, 1);
     }
-
-    if (gInterpreterCurrentProgram) {
-        longjmp(gInterpreterCurrentProgram->env, 1);
-    }
+    // Never jump to a stale frame or fall through a noreturn function.
+    abort();
 }
 
 // 0x467290
@@ -461,13 +472,14 @@ void programFree(Program* program)
 }
 
 // 0x467734
-Program* programCreateByPath(const char* path)
+Program* programCreateByPath(const char* path, bool fatalOnMissing)
 {
     File* stream = fileOpen(path, "rb");
     if (stream == nullptr) {
         char err[260];
         snprintf(err, sizeof(err), "Couldn't open %s for read\n", path);
-        programFatalError(err);
+        if (fatalOnMissing) programFatalError("%s", err);
+        debugPrint("%s", err);
         return nullptr;
     }
 
@@ -2633,9 +2645,13 @@ void _interpret(Program* program, int a2)
         program->field_78 = 1000 * _timerFunc() / _timerTick;
     }
 
+    jmp_buf recovery;
+    jmp_buf* oldRecovery = gInterpreterRecovery;
     gInterpreterCurrentProgram = program;
+    gInterpreterRecovery = &recovery;
 
-    if (setjmp(program->env)) {
+    if (setjmp(recovery)) {
+        gInterpreterRecovery = oldRecovery;
         gInterpreterCurrentProgram = oldCurrentProgram;
         program->flags |= PROGRAM_FLAG_EXITED | PROGRAM_FLAG_0x04;
         return;
@@ -2702,6 +2718,7 @@ void _interpret(Program* program, int a2)
     }
 
     program->flags &= ~PROGRAM_FLAG_0x40;
+    gInterpreterRecovery = oldRecovery;
     gInterpreterCurrentProgram = oldCurrentProgram;
 
     programMarkHeap(program);
@@ -2858,7 +2875,6 @@ void _executeProcedure(Program* program, int procedureIndex)
     int externalProcedureArgumentCount;
     int procedureFlags;
     char err[256];
-    jmp_buf env;
 
     procedurePtr = program->procedures + 4 + sizeof(Procedure) * procedureIndex;
     procedureFlags = stackReadInt32(procedurePtr, offsetof(Procedure, flags));
@@ -2870,9 +2886,9 @@ void _executeProcedure(Program* program, int procedureIndex)
             if (externalProcedureArgumentCount == 0) {
                 // NOTE: Uninline.
                 _setupExternalCall(program, externalProgram, externalProcedureAddress, 32);
-                memcpy(env, program->env, sizeof(env));
+
                 _interpret(externalProgram, -1);
-                memcpy(externalProgram->env, env, sizeof(env));
+
             } else {
                 snprintf(err, sizeof(err), "External procedure cannot take arguments in interrupt context");
                 _interpretOutput(err);
@@ -2886,9 +2902,9 @@ void _executeProcedure(Program* program, int procedureIndex)
 
         // NOTE: Uninline.
         _setupCall(program, procedureAddress, 24);
-        memcpy(env, program->env, sizeof(env));
+
         _interpret(program, -1);
-        memcpy(program->env, env, sizeof(env));
+
     }
 }
 
@@ -2904,7 +2920,6 @@ static void _doEvents()
     int oldProgramFlags;
     int oldInstructionPointer;
     int data;
-    jmp_buf env;
 
     if (_suspendEvents) {
         return;
@@ -2920,7 +2935,7 @@ static void _doEvents()
         for (procedureIndex = 0; procedureIndex < procedureCount; procedureIndex++) {
             procedureFlags = stackReadInt32(procedurePtr, offsetof(Procedure, flags));
             if ((procedureFlags & PROCEDURE_FLAG_CONDITIONAL) != 0) {
-                memcpy(env, programListNode->program, sizeof(env));
+
                 oldProgramFlags = programListNode->program->flags;
                 oldInstructionPointer = programListNode->program->instructionPointer;
 
@@ -2941,7 +2956,6 @@ static void _doEvents()
                     }
                 }
 
-                memcpy(programListNode->program, env, sizeof(env));
             } else if ((procedureFlags & PROCEDURE_FLAG_TIMED) != 0) {
                 if ((unsigned int)stackReadInt32(procedurePtr, offsetof(Procedure, time)) < time) {
                     // NOTE: Uninline.

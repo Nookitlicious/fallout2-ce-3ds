@@ -20,6 +20,9 @@
 #include "text_font.h"
 #include "tile.h"
 #include "window_manager.h"
+#ifdef __3DS__
+#include "platform/ctr/ctr_rectmap.h"
+#endif
 
 namespace fallout {
 
@@ -94,7 +97,10 @@ int showOptions()
         debugPrint("\nOPTION MENU: Error loading option dialog data!\n");
         return -1;
     }
-
+#ifdef __3DS__
+    rectMap_e previousLayout = ctr_rectMap.main;
+    setActiveRectMap(DISPLAY_PAUSE);
+#endif
     int rc = -1;
     while (rc == -1) {
         sharedFpsLimiter.mark();
@@ -162,7 +168,9 @@ int showOptions()
     }
 
     optionsWindowFree();
-
+#ifdef __3DS__
+    setActiveRectMap(previousLayout);
+#endif
     return rc;
 }
 

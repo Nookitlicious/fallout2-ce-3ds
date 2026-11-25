@@ -1,3 +1,6 @@
+#ifdef __3DS__
+#include "platform/ctr/ctr_mod_profiles.h"
+#endif
 #include "game.h"
 
 #include <stdio.h>
@@ -21,6 +24,9 @@
 #include "draw.h"
 #include "endgame.h"
 #include "font_manager.h"
+#include "file_utils.h"
+#include "o3ds_v8_options.h"
+#include "o3ds_load_profile.h"
 #include "game_dialog.h"
 #include "game_memory.h"
 #include "game_mouse.h"
@@ -120,11 +126,23 @@ MessageList gMiscMessageList;
 static void** gGameGlobalPointers = nullptr;
 
 // 0x442580
+// Startup-only diagnostics: preserve release behavior and avoid gameplay logging.
+static void gameInitModStage(const char* stage)
+{
+#ifdef __3DS__
+    if (ctrModProfileActive()) ctrModProfileStage(stage);
+#else
+    (void)stage;
+#endif
+}
+
 int gameInitWithOptions(const char* windowTitle, bool isMapper, int font, int a4, int argc, char** argv)
 {
+    O3dsLoadProfile profile("startup_init");
     char path[COMPAT_MAX_PATH];
 
     if (gameMemoryInit() == -1) {
+        gameInitModStage("Init failed: gameMemoryInit");
         return -1;
     }
 
@@ -134,14 +152,34 @@ int gameInitWithOptions(const char* windowTitle, bool isMapper, int font, int a4
 
     settingsInit(isMapper, argc, argv);
 
+#ifdef __3DS__
+    // Archive names are resolved by the profile loader, never by relative paths.
+    if (ctrModProfileActive()) {
+        settings.system.master_dat_path = "master.dat";
+        settings.system.critter_dat_path = "critter.dat";
+    }
+    // Experimental profiles must keep all writable data inside their own cwd.
+    if (ctrModProfileActive() && (compat_stricmp(settings.system.master_patches_path.c_str(), "data") != 0
+        || compat_stricmp(settings.system.critter_patches_path.c_str(), "data") != 0
+        || compat_stricmp(settings.system.master_dat_path.c_str(), "master.dat") != 0
+        || compat_stricmp(settings.system.critter_dat_path.c_str(), "critter.dat") != 0)) {
+        settingsExit(false);
+        sfallConfigExit();
+        gameInitModStage("Init failed: profile patch-path validation");
+        return -1;
+    }
+#endif
     gIsMapper = isMapper;
 
     if (gameDbInit() == -1) {
         settingsExit(false);
         sfallConfigExit();
+        gameInitModStage("Init failed: gameDbInit");
         return -1;
     }
 
+    profile.mark("database_and_config");
+    gameInitModStage("Init: database and config ready");
     // Message list repository is considered a specialized file manager, so
     // it should be initialized early in the process.
     messageListRepositoryInit();
@@ -150,6 +188,8 @@ int gameInitWithOptions(const char* windowTitle, bool isMapper, int font, int a4
     _initWindow(1, a4);
     paletteInit();
 
+    profile.mark("graphics_and_palette");
+    gameInitModStage("Init: graphics and palette ready");
     const char* language = settings.system.language.c_str();
     if (compat_stricmp(language, FRENCH) == 0) {
         keyboardSetLayout(KEYBOARD_LAYOUT_FRENCH);
@@ -169,6 +209,8 @@ int gameInitWithOptions(const char* windowTitle, bool isMapper, int font, int a4
         showSplash();
     }
 
+    profile.mark("splash");
+    gameInitModStage("Init: splash completed");
     // CE: Handle debug mode (exactly as seen in `mapper2.exe`).
     const char* debugMode = settings.debug.mode.c_str();
     if (compat_stricmp(debugMode, "environment") == 0) {
@@ -187,6 +229,8 @@ int gameInitWithOptions(const char* windowTitle, bool isMapper, int font, int a4
     fontManagerAdd(&gModernFontManager);
     fontSetCurrent(font);
 
+    profile.mark("fonts");
+    gameInitModStage("Init: fonts ready");
     screenshotHandlerConfigure(KEY_F12, gameTakeScreenshot);
 
     tileDisable();
@@ -198,6 +242,7 @@ int gameInitWithOptions(const char* windowTitle, bool isMapper, int font, int a4
 
     if (partyMembersInit() != 0) {
         debugPrint("Failed on partyMember_init\n");
+        gameInitModStage("Init failed: partyMembersInit");
         return -1;
     }
 
@@ -209,6 +254,8 @@ int gameInitWithOptions(const char* windowTitle, bool isMapper, int font, int a4
     aiInit();
     _inven_reset_dude();
 
+    profile.mark("game_data");
+    gameInitModStage("Init: game data ready");
     if (gameSoundInit() != 0) {
         debugPrint("Sound initialization failed.\n");
     }
@@ -220,6 +267,7 @@ int gameInitWithOptions(const char* windowTitle, bool isMapper, int font, int a4
 
     if (gameMoviesInit() != 0) {
         debugPrint("Failed on gmovie_init\n");
+        gameInitModStage("Init failed: gameMoviesInit");
         return -1;
     }
 
@@ -227,13 +275,17 @@ int gameInitWithOptions(const char* windowTitle, bool isMapper, int font, int a4
 
     if (movieEffectsInit() != 0) {
         debugPrint("Failed on moviefx_init\n");
+        gameInitModStage("Init failed: movieEffectsInit");
         return -1;
     }
 
     debugPrint(">moviefx_init\t");
 
+    profile.mark("audio_movies");
+    gameInitModStage("Init: audio and movies ready");
     if (isoInit() != 0) {
         debugPrint("Failed on iso_init\n");
+        gameInitModStage("Init failed: isoInit");
         return -1;
     }
 
@@ -241,13 +293,17 @@ int gameInitWithOptions(const char* windowTitle, bool isMapper, int font, int a4
 
     if (gameMouseInit() != 0) {
         debugPrint("Failed on gmouse_init\n");
+        gameInitModStage("Init failed: gameMouseInit");
         return -1;
     }
 
     debugPrint(">gmouse_init\t");
 
+    profile.mark("art_and_mouse");
+    gameInitModStage("Init: art and mouse ready");
     if (protoInit() != 0) {
         debugPrint("Failed on proto_init\n");
+        gameInitModStage("Init failed: protoInit");
         return -1;
     }
 
@@ -258,6 +314,7 @@ int gameInitWithOptions(const char* windowTitle, bool isMapper, int font, int a4
 
     if (scriptsInit() != 0) {
         debugPrint("Failed on scr_init\n");
+        gameInitModStage("Init failed: scriptsInit");
         return -1;
     }
 
@@ -265,6 +322,7 @@ int gameInitWithOptions(const char* windowTitle, bool isMapper, int font, int a4
 
     if (gameLoadGlobalVars() != 0) {
         debugPrint("Failed on game_load_info\n");
+        gameInitModStage("Init failed: gameLoadGlobalVars");
         return -1;
     }
 
@@ -272,18 +330,24 @@ int gameInitWithOptions(const char* windowTitle, bool isMapper, int font, int a4
 
     if (_scr_game_init() != 0) {
         debugPrint("Failed on scr_game_init\n");
+        gameInitModStage("Init failed: _scr_game_init");
         return -1;
     }
 
     debugPrint(">scr_game_init\t");
 
+    profile.mark("prototypes_scripts");
+    gameInitModStage("Init: prototypes and scripts ready");
     if (wmWorldMap_init() != 0) {
         debugPrint("Failed on wmWorldMap_init\n");
+        gameInitModStage("Init failed: wmWorldMap_init");
         return -1;
     }
 
     debugPrint(">wmWorldMap_init\t");
 
+    profile.mark("worldmap");
+    gameInitModStage("Init: worldmap ready");
     characterEditorInit();
     debugPrint(">CharEditInit\t");
 
@@ -296,6 +360,7 @@ int gameInitWithOptions(const char* windowTitle, bool isMapper, int font, int a4
 
     if (gameDialogInit() != 0) {
         debugPrint("Failed on gdialog_init\n");
+        gameInitModStage("Init failed: gameDialogInit");
         return -1;
     }
 
@@ -303,6 +368,7 @@ int gameInitWithOptions(const char* windowTitle, bool isMapper, int font, int a4
 
     if (combatInit() != 0) {
         debugPrint("Failed on combat_init\n");
+        gameInitModStage("Init failed: combatInit");
         return -1;
     }
 
@@ -310,6 +376,7 @@ int gameInitWithOptions(const char* windowTitle, bool isMapper, int font, int a4
 
     if (automapInit() != 0) {
         debugPrint("Failed on automap_init\n");
+        gameInitModStage("Init failed: automapInit");
         return -1;
     }
 
@@ -317,6 +384,7 @@ int gameInitWithOptions(const char* windowTitle, bool isMapper, int font, int a4
 
     if (!messageListInit(&gMiscMessageList)) {
         debugPrint("Failed on message_init\n");
+        gameInitModStage("Init failed: messageListInit (misc)");
         return -1;
     }
 
@@ -326,6 +394,7 @@ int gameInitWithOptions(const char* windowTitle, bool isMapper, int font, int a4
 
     if (!messageListLoad(&gMiscMessageList, path)) {
         debugPrint("Failed on message_load\n");
+        gameInitModStage("Init failed: messageListLoad (misc.msg)");
         return -1;
     }
 
@@ -333,6 +402,7 @@ int gameInitWithOptions(const char* windowTitle, bool isMapper, int font, int a4
 
     if (scriptsDisable() != 0) {
         debugPrint("Failed on scr_disable\n");
+        gameInitModStage("Init failed: scriptsDisable");
         return -1;
     }
 
@@ -340,6 +410,7 @@ int gameInitWithOptions(const char* windowTitle, bool isMapper, int font, int a4
 
     if (_init_options_menu() != 0) {
         debugPrint("Failed on init_options_menu\n");
+        gameInitModStage("Init failed: _init_options_menu");
         return -1;
     }
 
@@ -347,40 +418,50 @@ int gameInitWithOptions(const char* windowTitle, bool isMapper, int font, int a4
 
     if (endgameDeathEndingInit() != 0) {
         debugPrint("Failed on endgameDeathEndingInit");
+        gameInitModStage("Init failed: endgameDeathEndingInit");
         return -1;
     }
 
     debugPrint(">endgameDeathEndingInit\n");
 
+    profile.mark("interface_combat");
+    gameInitModStage("Init: interface and combat ready");
     // SFALL
     premadeCharactersInit();
 
     if (!sfall_gl_vars_init()) {
         debugPrint("Failed on sfall_gl_vars_init");
+        gameInitModStage("Init failed: sfall_gl_vars_init");
         return -1;
     }
 
     if (!sfallListsInit()) {
         debugPrint("Failed on sfallListsInit");
+        gameInitModStage("Init failed: sfallListsInit");
         return -1;
     }
 
     if (!sfallArraysInit()) {
         debugPrint("Failed on sfallArraysInit");
+        gameInitModStage("Init failed: sfallArraysInit");
         return -1;
     }
 
     if (!sfall_gl_scr_init()) {
         debugPrint("Failed on sfall_gl_scr_init");
+        gameInitModStage("Init failed: sfall_gl_scr_init");
         return -1;
     }
 
-    char* customConfigBasePath;
+    char* customConfigBasePath = nullptr;
     configGetString(&gSfallConfig, SFALL_CONFIG_SCRIPTS_KEY, SFALL_CONFIG_INI_CONFIG_FOLDER, &customConfigBasePath);
     sfall_ini_set_base_path(customConfigBasePath);
 
     messageListRepositorySetStandardMessageList(STANDARD_MESSAGE_LIST_MISC, &gMiscMessageList);
 
+    profile.mark("sfall");
+    gameInitModStage("Init: sfall ready");
+    profile.finish();
     return 0;
 }
 
@@ -1331,6 +1412,9 @@ static int gameDbInit()
     patch_file_name = nullptr;
 
     main_file_name = settings.system.master_dat_path.c_str();
+#ifdef __3DS__
+    if (ctrModProfileActive()) main_file_name = ctrModProfileArchive("master.dat");
+#endif
     if (*main_file_name == '\0') {
         main_file_name = nullptr;
     }
@@ -1341,12 +1425,22 @@ static int gameDbInit()
     }
 
     int master_db_handle = dbOpen(main_file_name, 0, patch_file_name, 1);
+#ifdef __3DS__
+    if (ctrModProfileActive()) {
+        char status[COMPAT_MAX_PATH + 80];
+        snprintf(status, sizeof(status), "master archive: %s -> %d; patch path: %s", main_file_name ? main_file_name : "(none)", master_db_handle, patch_file_name ? patch_file_name : "(none)");
+        ctrModProfileStage(status);
+    }
+#endif
     if (master_db_handle == -1) {
         showMesageBox("Could not find the master datafile. Please make sure the FALLOUT CD is in the drive and that you are running FALLOUT from the directory you installed it to.");
         return -1;
     }
 
     main_file_name = settings.system.critter_dat_path.c_str();
+#ifdef __3DS__
+    if (ctrModProfileActive()) main_file_name = ctrModProfileArchive("critter.dat");
+#endif
     if (*main_file_name == '\0') {
         main_file_name = nullptr;
     }
@@ -1357,6 +1451,13 @@ static int gameDbInit()
     }
 
     int critter_db_handle = dbOpen(main_file_name, 0, patch_file_name, 1);
+#ifdef __3DS__
+    if (ctrModProfileActive()) {
+        char status[COMPAT_MAX_PATH + 80];
+        snprintf(status, sizeof(status), "critter archive: %s -> %d; patch path: %s", main_file_name ? main_file_name : "(none)", critter_db_handle, patch_file_name ? patch_file_name : "(none)");
+        ctrModProfileStage(status);
+    }
+#endif
     if (critter_db_handle == -1) {
         showMesageBox("Could not find the critter datafile. Please make sure the FALLOUT CD is in the drive and that you are running FALLOUT from the directory you installed it to.");
         return -1;
@@ -1369,14 +1470,30 @@ static int gameDbInit()
         path_file_name_template = "patch%03d.dat";
     }
 
+    bool patchPresent[1000];
+    bool scannedPatches = o3dsV8FastIo() && compat_stricmp(path_file_name_template, "patch%03d.dat") == 0
+        && fileFindStockPatches(patchPresent);
     for (patch_index = 0; patch_index < 1000; patch_index++) {
+        if (scannedPatches && !patchPresent[patch_index]) continue;
         snprintf(filename, sizeof(filename), path_file_name_template, patch_index);
 
         if (compat_access(filename, 0) == 0) {
-            dbOpen(filename, 0, nullptr, 1);
+            int rc = dbOpen(filename, 0, nullptr, 1);
+#ifdef __3DS__
+            if (ctrModProfileActive()) {
+                char status[COMPAT_MAX_PATH + 80];
+                snprintf(status, sizeof(status), "Numbered patch: %s -> %d", filename, rc);
+                ctrModProfileStage(status);
+            }
+#else
+            (void)rc;
+#endif
         }
     }
 
+#ifdef __3DS__
+    if (ctrModProfileActive()) ctrModProfileLoadArchives();
+#endif
     if (compat_access("f2_res.dat", 0) == 0) {
         dbOpen("f2_res.dat", 0, nullptr, 1);
     }

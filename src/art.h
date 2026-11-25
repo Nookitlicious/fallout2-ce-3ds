@@ -149,7 +149,7 @@ int artCritterFidShouldRun(int a1);
 int artAliasFid(int fid);
 int buildFid(int objectType, int frmId, int animType, int weaponCode, int rotation);
 Art* artLoad(const char* path);
-int artRead(const char* path, unsigned char* data);
+int artRead(const char* path, unsigned char* data, int capacity);
 int artWrite(const char* path, unsigned char* data);
 
 class FrmImage {

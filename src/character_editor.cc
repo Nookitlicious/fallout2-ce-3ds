@@ -24,11 +24,13 @@
 #include "geometry.h"
 #include "graph_lib.h"
 #include "input.h"
+#include "o3ds_menu_profile.h"
 #include "interface.h"
 #include "item.h"
 #include "kb.h"
 #include "map.h"
 #include "memory.h"
+#include "o3ds_text_reader.h"
 #include "message.h"
 #include "mouse.h"
 #include "object.h"
@@ -44,6 +46,10 @@
 #include "text_font.h"
 #include "trait.h"
 #include "window_manager.h"
+#ifdef __3DS__
+#include "platform/ctr/ctr_rectmap.h"
+#include "platform/ctr/ctr_input.h"
+#endif
 #include "word_wrap.h"
 #include "worldmap.h"
 
@@ -818,7 +824,10 @@ int characterEditorShow(bool isCreationMode)
             characterEditorDrawCard();
         }
     }
-
+#ifdef __3DS__
+    setPreviousRectMap(0);
+    setActiveRectMap(DISPLAY_CHAR);
+#endif
     int rc = -1;
     while (rc == -1) {
         sharedFpsLimiter.mark();
@@ -1183,7 +1192,10 @@ int characterEditorShow(bool isCreationMode)
             paletteFadeTo(gPaletteBlack);
         }
     }
-
+#ifdef __3DS__
+    offsetY_char = 0;
+    setActiveRectMap(getPreviousRectMap(0));
+#endif
     characterEditorWindowFree();
 
     if (rc == 1) {
@@ -1202,6 +1214,7 @@ int characterEditorShow(bool isCreationMode)
 // 0x4329EC
 static int characterEditorWindowInit()
 {
+    O3dsMenuProfile profile("character");
     int i;
     int v1;
     int v3;
@@ -1280,6 +1293,7 @@ static int characterEditorWindowInit()
         return -1;
     }
 
+    profile.mark("messages_and_setup");
     fid = buildFid(OBJ_TYPE_INTERFACE, (gCharacterEditorIsCreationMode ? 169 : 177), 0, 0, 0);
     if (!_editorBackgroundFrmImage.lock(fid)) {
         messageListFree(&gCharacterEditorMessageList);
@@ -1300,6 +1314,7 @@ static int characterEditorWindowInit()
     // SFALL: Custom town reputation.
     customTownReputationInit();
 
+    profile.mark("reputation_and_background");
     soundContinueAll();
 
     for (i = 0; i < EDITOR_GRAPHIC_COUNT; i++) {
@@ -1821,8 +1836,10 @@ static int characterEditorWindowInit()
         buttonSetCallbacks(btn, _gsound_red_butt_press, _gsound_red_butt_release);
     }
 
+    profile.mark("artwork_and_window");
     windowRefresh(gCharacterEditorWindow);
     indicatorBarHide();
+    profile.finish();
 
     return 0;
 }
@@ -1911,6 +1928,9 @@ void characterEditorInit()
 // handle name input
 static int _get_input_str(int win, int cancelKeyCode, char* text, int maxLength, int x, int y, int textColor, int backgroundColor, int flags)
 {
+#ifdef __3DS__
+    return ctr_input_edit_text("Character name", text, maxLength, false, (flags & 1) != 0) ? 0 : -1;
+#endif
     int cursorWidth = fontGetStringWidth("_") - 4;
     int windowWidth = windowGetWidth(win);
     int v60 = fontGetLineHeight();
@@ -5926,6 +5946,12 @@ static int perkDialogShow()
     }
 
     perkDialogDrawCard(perkFrmId, perkName, perkRank, perkDescription);
+
+    #ifdef __3DS__
+    setPreviousRectMap(1);
+    setActiveRectMap(DISPLAY_CHAR_PERK);
+#endif
+
     windowRefresh(gPerkDialogWindow);
 
     int rc = perkDialogHandleInput(count, perkDialogRefreshPerks);
@@ -5969,7 +5995,9 @@ static int perkDialogShow()
     _perkDialogBackgroundFrmImage.unlock();
 
     windowDestroy(gPerkDialogWindow);
-
+#ifdef __3DS__
+    setActiveRectMap(getPreviousRectMap(1));
+#endif
     return rc;
 }
 
@@ -6992,7 +7020,8 @@ static int karmaInit()
     }
 
     char string[256];
-    while (fileReadString(string, 256, stream)) {
+    O3dsTextReader reader(stream);
+    while (reader.readLine(string, sizeof(string))) {
         KarmaEntry entry;
 
         char* pch = string;
@@ -7091,7 +7120,8 @@ static int genericReputationInit()
     }
 
     char string[256];
-    while (fileReadString(string, 256, stream)) {
+    O3dsTextReader reader(stream);
+    while (reader.readLine(string, sizeof(string))) {
         GenericReputationEntry entry;
 
         char* pch = string;

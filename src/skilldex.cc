@@ -24,6 +24,9 @@
 #include "svga.h"
 #include "text_font.h"
 #include "window_manager.h"
+#ifdef __3DS__
+#include "platform/ctr/ctr_rectmap.h"
+#endif
 
 namespace fallout {
 
@@ -115,7 +118,10 @@ int skilldexOpen()
         debugPrint("\n ** Error loading skilldex dialog data! **\n");
         return -1;
     }
-
+#ifdef __3DS__
+    rectMap_e previousLayout = ctr_rectMap.main;
+    setActiveRectMap(DISPLAY_SKILLDEX);
+#endif
     int rc = -1;
     while (rc == -1) {
         sharedFpsLimiter.mark();
@@ -141,6 +147,9 @@ int skilldexOpen()
     }
 
     skilldexWindowFree();
+    #ifdef __3DS__
+    setActiveRectMap(previousLayout);
+#endif
 
     return rc;
 }

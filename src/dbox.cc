@@ -22,6 +22,11 @@
 #include "text_font.h"
 #include "window_manager.h"
 #include "word_wrap.h"
+#ifdef __3DS__
+#include "platform/ctr/ctr_input.h"
+#include "platform/ctr/ctr_rectmap.h"
+#include "platform/ctr/ctr_gfx.h"
+#endif
 
 namespace fallout {
 
@@ -270,7 +275,8 @@ int showDialogBox(const char* title, const char** body, int bodyLength, int x, i
 
         if (!messageListLoad(&messageList, path)) {
             fontSetCurrent(savedFont);
-            // FIXME: Window is not removed.
+            messageListFree(&messageList);
+            windowDestroy(win);
             return -1;
         }
 
@@ -521,6 +527,19 @@ int showDialogBox(const char* title, const char** body, int bodyLength, int x, i
         }
     }
 
+#ifdef __3DS__
+    // Use the actual GNW window rectangle, not Fallout 1 hard-coded coordinates.
+    const rectMap_e previousMap = ctr_rectMap.main;
+    Rect dialogRect;
+    const bool mapped = windowGetRect(win, &dialogRect) == 0;
+    if (mapped) {
+        setRectMapPos(DISPLAY_DYNAMIC, dialogRect.left, dialogRect.top,
+            rectGetWidth(&dialogRect), rectGetHeight(&dialogRect), false);
+        setActiveRectMap(DISPLAY_DYNAMIC);
+        ctr_gfx_invalidate();
+    }
+    u32 previousHeld = ctr_input.frame.kHeld;
+#endif
     windowRefresh(win);
 
     int rc = -1;
@@ -528,6 +547,13 @@ int showDialogBox(const char* title, const char** body, int bodyLength, int x, i
         sharedFpsLimiter.mark();
 
         int keyCode = inputGetInput();
+#ifdef __3DS__
+        const u32 held = ctr_input.frame.kHeld;
+        const u32 pressed = held & ~previousHeld;
+        previousHeld = held;
+        if (pressed & KEY_A) keyCode = KEY_RETURN;
+        else if (pressed & KEY_B) keyCode = KEY_ESCAPE;
+#endif
 
         if (keyCode == 500) {
             rc = 1;
@@ -555,6 +581,12 @@ int showDialogBox(const char* title, const char** body, int bodyLength, int x, i
     }
 
     windowDestroy(win);
+#ifdef __3DS__
+    if (mapped) {
+        setActiveRectMap(previousMap);
+        ctr_gfx_invalidate();
+    }
+#endif
     fontSetCurrent(savedFont);
 
     if (v86) {
@@ -1115,7 +1147,15 @@ int showSaveFileDialog(char* title, char** fileList, char* dest, int fileListLen
 
     windowRefresh(win);
 
+#ifdef __3DS__
+    // Keep the existing file list and Done/Cancel buttons usable. Tap the
+    // filename to reopen the native keyboard after selecting an existing file.
+    buttonCreate(win, 57, 190, 150, cursorHeight, -1, -1, -1, 509,
+        nullptr, nullptr, nullptr, 0);
+    bool editFilename = true;
+#else
     beginTextInput();
+#endif
 
     int blinkingCounter = 3;
     bool blink = false;
@@ -1135,6 +1175,27 @@ int showSaveFileDialog(char* title, char** fileList, char* dest, int fileListLen
 
         convertMouseWheelToArrowKey(&keyCode);
 
+#ifdef __3DS__
+        if (editFilename || keyCode == 509) {
+            editFilename = false;
+            char edited[9] = {};
+            size_t initialLength = std::min(fileNameCopyLength, sizeof(edited) - 1);
+            memcpy(edited, fileNameCopy, initialLength);
+            if (ctr_input_edit_text("Filename (8 characters)", edited, 8, false, true)) {
+                bufferFill(fileNameBufferPtr, fontGetStringWidth(fileNameCopy), cursorHeight, backgroundWidth, 100);
+                fileNameCopyLength = strlen(edited);
+                memcpy(fileNameCopy, edited, fileNameCopyLength);
+                fileNameCopy[fileNameCopyLength] = ' ';
+                fileNameCopy[fileNameCopyLength + 1] = '\0';
+                fontDrawText(fileNameBufferPtr, fileNameCopy, backgroundWidth, backgroundWidth, _colorTable[992]);
+                doubleClickSelectedFileIndex = -2;
+                windowRefresh(win);
+            }
+            // Do not treat keyboard confirmation as saving the file itself.
+            keyCode = -1;
+            tick = getTicks();
+        }
+#endif
         if (keyCode == 500) {
             rc = 0;
         } else if (keyCode == KEY_RETURN) {
@@ -1379,7 +1440,9 @@ int showSaveFileDialog(char* title, char** fileList, char* dest, int fileListLen
         sharedFpsLimiter.throttle();
     }
 
+#ifndef __3DS__
     endTextInput();
+#endif
 
     if (rc == 0) {
         if (fileNameCopyLength != 0) {

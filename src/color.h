@@ -15,6 +15,9 @@ extern unsigned char* _blendTable[256];
 extern unsigned char _mappedColor[256];
 extern Color colorMixAddTable[256][256];
 extern Color intensityColorTable[256][256];
+#ifdef __3DS__
+const unsigned char* o3dsLightRow(int intensity);
+#endif
 extern Color colorMixMulTable[256][256];
 extern unsigned char _colorTable[32768];
 

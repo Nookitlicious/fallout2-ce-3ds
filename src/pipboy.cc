@@ -21,10 +21,12 @@
 #include "game_sound.h"
 #include "geometry.h"
 #include "input.h"
+#include "o3ds_menu_profile.h"
 #include "interface.h"
 #include "kb.h"
 #include "map.h"
 #include "memory.h"
+#include "o3ds_text_reader.h"
 #include "message.h"
 #include "mouse.h"
 #include "object.h"
@@ -41,6 +43,13 @@
 #include "window_manager.h"
 #include "word_wrap.h"
 #include "worldmap.h"
+
+#ifdef __3DS__
+#include <3ds.h>
+#include "platform/ctr/ctr_rectmap.h"
+#include "platform/ctr/ctr_gfx.h"
+#include "platform/ctr/ctr_input.h"
+#endif
 
 namespace fallout {
 
@@ -416,6 +425,23 @@ int pipboyOpen(int intent)
         return -1;
     }
 
+#ifdef __3DS__
+    const rectMap_e previousMap = ctr_rectMap.main;
+    const auto previousMode = ctr_input.mode;
+    ctr_input.mode = DISPLAY_MODE_ADAPT;
+    const int pipX = (screenGetWidth()-640)/2;
+    const int pipY = (screenGetHeight()-480)/2;
+    rectMaps[DISPLAY_PIPBOY][0]->src_x = pipX;
+    rectMaps[DISPLAY_PIPBOY][0]->src_y = pipY + 330;
+    rectMaps[DISPLAY_PIPBOY][1]->src_x = pipX;
+    rectMaps[DISPLAY_PIPBOY][1]->src_y = pipY;
+    setActiveRectMap(DISPLAY_PIPBOY);
+    mouseHideCursor();
+    _mouse_set_position(pipX + 441, pipY + 251);
+    mouseShowCursor();
+    ctr_gfx_invalidate();
+    unsigned int pipPreviousKeys = hidKeysHeld();
+#endif
     mouseGetPositionInWindow(gPipboyWindow, &gPipboyPreviousMouseX, &gPipboyPreviousMouseY);
     gPipboyLastEventTimestamp = getTicks();
 
@@ -423,6 +449,14 @@ int pipboyOpen(int intent)
         sharedFpsLimiter.mark();
 
         int keyCode = inputGetInput();
+#ifdef __3DS__
+        unsigned int pipKeys = hidKeysHeld();
+        unsigned int pipPressed = pipKeys & ~pipPreviousKeys;
+        pipPreviousKeys = pipKeys;
+        if (pipPressed & KEY_B) keyCode = _hot_back_line ? 528 : KEY_ESCAPE;
+        // SDL may also map A to Return; A is a mouse click in this view.
+        if ((pipKeys & KEY_A) && keyCode == KEY_RETURN) keyCode = -1;
+#endif
 
         if (intent == PIPBOY_OPEN_INTENT_REST) {
             keyCode = 504;
@@ -482,6 +516,11 @@ int pipboyOpen(int intent)
     }
 
     pipboyWindowFree();
+#ifdef __3DS__
+    ctr_input.mode = previousMode;
+    setActiveRectMap(previousMap);
+    ctr_gfx_invalidate();
+#endif
 
     return 0;
 }
@@ -489,6 +528,7 @@ int pipboyOpen(int intent)
 // 0x497228
 static int pipboyWindowInit(int intent)
 {
+    O3dsMenuProfile profile("pipboy");
     gPipboyWindowIsoWasEnabled = isoDisable();
 
     colorCycleDisable();
@@ -528,6 +568,7 @@ static int pipboyWindowInit(int intent)
         return -1;
     }
 
+    profile.mark("holodisks_and_messages");
     int index;
     for (index = 0; index < PIPBOY_FRM_COUNT; index++) {
         int fid = buildFid(OBJ_TYPE_INTERFACE, gPipboyFrmIds[index], 0, 0, 0);
@@ -546,6 +587,7 @@ static int pipboyWindowInit(int intent)
         return -1;
     }
 
+    profile.mark("artwork");
     int pipboyWindowX = (screenGetWidth() - PIPBOY_WINDOW_WIDTH) / 2;
     int pipboyWindowY = (screenGetHeight() - PIPBOY_WINDOW_HEIGHT) / 2;
     gPipboyWindow = windowCreate(pipboyWindowX, pipboyWindowY, PIPBOY_WINDOW_WIDTH, PIPBOY_WINDOW_HEIGHT, _colorTable[0], WINDOW_MODAL);
@@ -692,13 +734,16 @@ static int pipboyWindowInit(int intent)
         windowRefresh(gPipboyWindow);
     }
 
+    profile.mark("window_and_buttons");
     if (questInit() == -1) {
         return -1;
     }
 
+    profile.mark("quests");
     soundPlayFile("pipon");
     windowRefresh(gPipboyWindow);
 
+    profile.finish();
     return intent;
 }
 
@@ -1693,6 +1738,14 @@ static void pipboyHandleVideoArchive(int a1)
 
         if (movie <= MOVIE_COUNT) {
             gameMoviePlay(movie, GAME_MOVIE_FADE_IN | GAME_MOVIE_FADE_OUT | GAME_MOVIE_PAUSE_MUSIC);
+#ifdef __3DS__
+            ctr_input.mode = DISPLAY_MODE_ADAPT;
+            setActiveRectMap(DISPLAY_PIPBOY);
+            mouseHideCursor();
+            _mouse_set_position((screenGetWidth()-640)/2 + 441, (screenGetHeight()-480)/2 + 251);
+            mouseShowCursor();
+            ctr_gfx_invalidate();
+#endif
         } else {
             debugPrint("\n ** Selected movie not found in list! **\n");
         }
@@ -2427,7 +2480,8 @@ static int questInit()
     }
 
     char string[256];
-    while (fileReadString(string, 256, stream)) {
+    O3dsTextReader reader(stream);
+    while (reader.readLine(string, sizeof(string))) {
         const char* delim = " \t,";
         char* tok;
         QuestDescription entry;
@@ -2537,7 +2591,8 @@ static int holodiskInit()
     }
 
     char str[256];
-    while (fileReadString(str, sizeof(str), stream)) {
+    O3dsTextReader reader(stream);
+    while (reader.readLine(str, sizeof(str))) {
         const char* delim = " \t,";
         char* tok;
         HolodiskDescription entry;

@@ -72,13 +72,13 @@ CFLAGS	:=	-g -Wall -mword-relocations \
 
 CFLAGS	+=	$(INCLUDE) -D__3DS__ -DSDL_MAIN_HANDLED
 
-CFLAGS	+=	-Ofast -funroll-loops -fno-math-errno -ffast-math
+CFLAGS += -Ofast -funroll-loops -fno-math-errno -ffast-math
 #CFLAGS	+=	-D_DEBUG -D_DEBUG_OVERLAY -D_DEBUG_LINK
 
 CXXFLAGS	:= $(CFLAGS) -fno-rtti -fno-exceptions -std=gnu++17
 
 ASFLAGS	:=	-g $(ARCH)
-LDFLAGS	=	-specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
+LDFLAGS = -specs=3dsx.specs -g $(ARCH) -Wl,-Map,$(notdir $*.map)
 
 LIBS	:=  -lSDL2 -lcitro2d -lcitro3d -lctru -lm -lz
 

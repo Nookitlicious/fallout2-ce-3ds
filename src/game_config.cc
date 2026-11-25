@@ -1,3 +1,6 @@
+#ifdef __3DS__
+#include "platform/ctr/ctr_mod_profiles.h"
+#endif
 #include "game_config.h"
 #include "sfall_config.h"
 
@@ -149,7 +152,7 @@ bool gameConfigInit(bool isMapper, int argc, char** argv)
         : DEFAULT_GAME_CONFIG_FILE_NAME;
 
 #ifdef __3DS__
-    strcpy(gGameConfigFilePath, "sdmc:/3ds/fallout2/fallout2.cfg");
+    snprintf(gGameConfigFilePath, sizeof(gGameConfigFilePath), "%s", ctrModProfileConfigPath());
 #else
     // Make `fallout2.cfg` file path.
     char* executable = argv[0];

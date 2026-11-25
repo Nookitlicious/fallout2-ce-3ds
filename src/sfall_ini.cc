@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <string>
 
 #include "config.h"
 #include "platform_compat.h"
@@ -71,7 +72,7 @@ static bool is_system_file_name(const char* fileName)
 void sfall_ini_set_base_path(const char* path)
 {
     if (path != nullptr) {
-        strcpy(basePath, path);
+        snprintf(basePath, sizeof(basePath), "%s", path);
 
         size_t length = strlen(basePath);
         if (length > 0) {
@@ -98,8 +99,8 @@ bool sfall_ini_get_int(const char* triplet, int* value)
 
 bool sfall_ini_get_string(const char* triplet, char* value, size_t size)
 {
-    char fileName[kFileNameMaxSize];
-    char section[kSectionMaxSize];
+    char fileName[kFileNameMaxSize + 1];
+    char section[kSectionMaxSize + 1];
 
     const char* key = parse_ini_triplet(triplet, fileName, section);
     if (key == nullptr) {
@@ -145,6 +146,86 @@ bool sfall_ini_get_string(const char* triplet, char* value, size_t size)
     return true;
 }
 
+// Keep script-supplied paths relative to the active game's working directory.
+// Accept Windows separators and a leading ./, but reject parent traversal.
+static bool relativeIniPath(std::string& path)
+{
+    std::replace(path.begin(), path.end(), '\\', '/');
+    if (path.empty() || path[0] == '/' || path.find(':') != std::string::npos
+        || path.size() >= COMPAT_MAX_PATH) {
+        return false;
+    }
+    size_t start = 0;
+    while (start < path.size()) {
+        size_t end = path.find('/', start);
+        if (path.substr(start, end - start) == "..") return false;
+        if (end == std::string::npos) break;
+        start = end + 1;
+    }
+    return true;
+}
+
+static bool readIniForArray(Config* config, const char* fileName)
+{
+    if (fileName == nullptr) return false;
+    std::string file(fileName);
+    if (!relativeIniPath(file)) return false;
+
+    if (basePath[0] != '\0' && !is_system_file_name(file.c_str())) {
+        std::string base(basePath);
+        if (relativeIniPath(base)) {
+            std::string path = base + "/" + file;
+            if (path.size() < COMPAT_MAX_PATH && configRead(config, path.c_str(), false)) return true;
+        }
+    }
+    return configRead(config, file.c_str(), false);
+}
+
+static ProgramValue iniStringValue(Program* program, char* string)
+{
+    ProgramValue value;
+    value.opcode = VALUE_TYPE_DYNAMIC_STRING;
+    value.integerValue = programPushString(program, string);
+    return value;
+}
+
+ArrayId sfall_ini_get_section(Program* program, const char* fileName, const char* sectionName)
+{
+    const ArrayId id = CreateTempArray(-1, 0);
+    Config config;
+    if (!configInit(&config)) return id;
+    if (sectionName != nullptr && readIniForArray(&config, fileName)) {
+        int index = dictionaryGetIndexByKey(&config, sectionName);
+        if (index >= 0) {
+            auto* section = static_cast<ConfigSection*>(config.entries[index].value);
+            for (int i = 0; i < section->entriesLength; ++i) {
+                auto& entry = section->entries[i];
+                auto key = iniStringValue(program, entry.key);
+                auto value = iniStringValue(program, *static_cast<char**>(entry.value));
+                SetArray(id, key, value, false, program);
+            }
+        }
+    }
+    configFree(&config);
+    return id;
+}
+
+ArrayId sfall_ini_get_sections(Program* program, const char* fileName)
+{
+    Config config;
+    if (!configInit(&config)) return CreateTempArray(0, 0);
+    const bool loaded = readIniForArray(&config, fileName);
+    const ArrayId id = CreateTempArray(loaded ? config.entriesLength : 0, 0);
+    if (loaded) {
+        for (int i = 0; i < config.entriesLength; ++i) {
+            auto value = iniStringValue(program, config.entries[i].key);
+            SetArray(id, ProgramValue(i), value, false, program);
+        }
+    }
+    configFree(&config);
+    return id;
+}
+
 bool sfall_ini_set_int(const char* triplet, int value)
 {
     char stringValue[20];
@@ -155,8 +236,8 @@ bool sfall_ini_set_int(const char* triplet, int value)
 
 bool sfall_ini_set_string(const char* triplet, const char* value)
 {
-    char fileName[kFileNameMaxSize];
-    char section[kSectionMaxSize];
+    char fileName[kFileNameMaxSize + 1];
+    char section[kSectionMaxSize + 1];
 
     const char* key = parse_ini_triplet(triplet, fileName, section);
     if (key == nullptr) {

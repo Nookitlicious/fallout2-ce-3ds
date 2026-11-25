@@ -1,6 +1,7 @@
 #include "svga.h"
 
 #include <limits.h>
+#include <stdio.h>
 #include <string.h>
 
 #include <SDL.h>
@@ -16,6 +17,7 @@
 
 #ifdef __3DS__
 #include "platform/ctr/ctr_gfx.h"
+#include "platform/ctr/ctr_mod_profiles.h"
 #include "platform/ctr/ctr_rectmap.h"
 #endif
 
@@ -147,6 +149,22 @@ int _GNW95_init_mode_ex(int width, int height, int bpp)
         configFree(&resolutionConfig);
     }
 
+#ifdef __3DS__
+    if (ctrModProfileActive()) {
+        char diagnostic[128];
+        snprintf(diagnostic, sizeof(diagnostic), "Requested framebuffer %dx%d scale %d; enforcing 640x480", width, height, scale);
+        ctrModProfileStage(diagnostic);
+        width = 640;
+        height = 480;
+        scale = 1;
+        fullscreen = true;
+        gInterfaceBarMode = false;
+        gInterfaceBarWidth = -1;
+        gInterfaceSidePanelsImageId = 2;
+        gInterfaceSidePanelsExtendFromScreenEdge = false;
+    }
+#endif
+
     if (_GNW95_init_window(width, height, fullscreen, scale) == -1) {
         return -1;
     }
@@ -239,6 +257,9 @@ int directDrawInit(int width, int height, int bpp)
     }
 
     SDL_SetPaletteColors(gSdlSurface->format->palette, colors, 0, 256);
+#ifdef __3DS__
+    ctr_gfx_invalidate();
+#endif
 
     return 0;
 }
@@ -317,8 +338,12 @@ unsigned char* directDrawGetPalette()
 // 0x4CB850
 void _GNW95_ShowRect(unsigned char* src, int srcPitch, int a3, int srcX, int srcY, int srcWidth, int srcHeight, int destX, int destY)
 {
+#ifdef __3DS__
+    ctr_gfx_copy_rect(src + srcPitch * srcY + srcX, srcPitch,
+        (unsigned char*)gSdlSurface->pixels + gSdlSurface->pitch * destY + destX,
+        gSdlSurface->pitch, srcWidth, srcHeight, destY);
+#else
     blitBufferToBuffer(src + srcPitch * srcY + srcX, srcWidth, srcHeight, srcPitch, (unsigned char*)gSdlSurface->pixels + gSdlSurface->pitch * destY + destX, gSdlSurface->pitch);
-#ifndef __3DS__
     SDL_Rect srcRect;
     srcRect.x = destX;
     srcRect.y = destY;
@@ -346,7 +371,9 @@ void _GNW95_zero_vid_mem()
         memset(surface, 0, gSdlSurface->w);
         surface += gSdlSurface->pitch;
     }
-#ifndef __3DS__
+#ifdef __3DS__
+    ctr_gfx_invalidate();
+#else
     SDL_BlitSurface(gSdlSurface, nullptr, gSdlTextureSurface, nullptr);
 #endif
 }

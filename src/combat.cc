@@ -5460,16 +5460,27 @@ static void _draw_loc_on_(int a1, int a2)
 // 0x4261CC
 static void _draw_loc_(int eventCode, int color)
 {
-    color |= 0x3000000;
-
-    if (eventCode >= 4) {
-        char* name = hitLocationGetName(gCalledShotCritter, _hit_loc_right[eventCode - 4]);
-        int width = fontGetStringWidth(name);
-        windowDrawText(gCalledShotWindow, name, 0, 431 - width, _call_ty[eventCode - 4] - 86, color);
-    } else {
-        char* name = hitLocationGetName(gCalledShotCritter, _hit_loc_left[eventCode]);
-        windowDrawText(gCalledShotWindow, name, 0, 74, _call_ty[eventCode] - 86, color);
+    if (gCalledShotCritter == nullptr || eventCode < 0 || eventCode >= HIT_LOCATION_SPECIFIC_COUNT) {
+        return;
     }
+
+    const bool right = eventCode >= 4;
+    const int row = right ? eventCode - 4 : eventCode;
+    const int location = right ? _hit_loc_right[row] : _hit_loc_left[row];
+    const char* name = hitLocationGetName(gCalledShotCritter, location);
+    if (name == nullptr || name[0] == '\0') {
+        // Some critter aliases have no entry for a particular body part.
+        // Preserve the actual hit location and provide a readable label.
+        static const char* const fallbackNames[HIT_LOCATION_SPECIFIC_COUNT] = {
+            "Head", "Left arm", "Right arm", "Torso",
+            "Right leg", "Left leg", "Eyes", "Groin",
+        };
+        name = fallbackNames[location];
+    }
+
+    color |= 0x3000000;
+    const int x = right ? 431 - fontGetStringWidth(name) : 74;
+    windowDrawText(gCalledShotWindow, name, 0, x, _call_ty[row] - 86, color);
 }
 
 // 0x426218
@@ -5605,7 +5616,7 @@ static int calledShotSelectHitLocation(Object* critter, int* hitLocation, int hi
             break;
         }
 
-        if (eventCode >= 0 && eventCode < HIT_LOCATION_COUNT) {
+        if (eventCode >= 0 && eventCode < HIT_LOCATION_SPECIFIC_COUNT) {
             break;
         }
 
@@ -5626,8 +5637,10 @@ static int calledShotSelectHitLocation(Object* critter, int* hitLocation, int hi
     fontSetCurrent(oldFont);
 
     windowDestroy(gCalledShotWindow);
+    gCalledShotWindow = -1;
+    gCalledShotCritter = nullptr;
 
-    if (eventCode == KEY_ESCAPE) {
+    if (_game_user_wants_to_quit != 0 || eventCode < 0 || eventCode >= HIT_LOCATION_SPECIFIC_COUNT) {
         return -1;
     }
 

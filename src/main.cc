@@ -24,6 +24,8 @@
 #include "map.h"
 #include "mouse.h"
 #include "object.h"
+#include "o3ds_load_profile.h"
+#include "o3ds_gameplay_profile.h"
 #include "palette.h"
 #include "platform_compat.h"
 #include "preferences.h"
@@ -40,6 +42,11 @@
 #include "window_manager_private.h"
 #include "word_wrap.h"
 #include "worldmap.h"
+#ifdef __3DS__
+#include "platform/ctr/ctr_rectmap.h"
+#include "platform/ctr/ctr_mod_profiles.h"
+#include "platform/ctr/ctr_input.h"
+#endif
 
 namespace fallout {
 
@@ -73,32 +80,59 @@ static bool _main_death_voiceover_done;
 // 0x48099C
 int falloutMain(int argc, char** argv)
 {
+    O3dsLoadProfile startup("startup");
     if (!autorunMutexCreate()) {
         return 1;
     }
 
     if (!falloutInit(argc, argv)) {
+#ifdef __3DS__
+        if (ctrModProfileActive()) ctrModProfileStage("Engine initialization failed");
+#endif
         return 1;
     }
 
+    startup.mark("engine_init");
     // SFALL: Allow to skip intro movies
-    int skipOpeningMovies;
+    int skipOpeningMovies = 0;
     configGetInt(&gSfallConfig, SFALL_CONFIG_MISC_KEY, SFALL_CONFIG_SKIP_OPENING_MOVIES_KEY, &skipOpeningMovies);
+#ifdef __3DS__
+    if (ctrModProfileActive()) { ctrModProfileStage("Engine initialized; skipping opening movies for mod test"); skipOpeningMovies=1; }
+#endif
     if (skipOpeningMovies < 1) {
         gameMoviePlay(MOVIE_IPLOGO, GAME_MOVIE_FADE_IN);
         gameMoviePlay(MOVIE_INTRO, 0);
         gameMoviePlay(MOVIE_CREDITS, 0);
     }
 
+    startup.mark("opening_movies");
+#ifdef __3DS__
+    if (ctrModProfileActive()) ctrModProfileStage("Creating main menu");
+#endif
     if (mainMenuWindowInit() == 0) {
         bool done = false;
         while (!done) {
+            #ifdef __3DS__
+            if (ctr_rectMap.active != DISPLAY_MAIN)
+                setActiveRectMap(DISPLAY_MAIN);
+#endif
+
             keyboardReset();
             _gsound_background_play_level_music("07desert", 11);
             mainMenuWindowUnhide(1);
+            startup.finish();
+#ifdef __3DS__
+            ctrModProfileStartupComplete();
+#endif
 
             mouseShowCursor();
+#ifdef __3DS__
+            ctr_input_set_menu_quit(true);
+#endif
             int mainMenuRc = mainMenuWindowHandleEvents();
+#ifdef __3DS__
+            ctr_input_set_menu_quit(false);
+#endif
             mouseHideCursor();
 
             switch (mainMenuRc) {
@@ -110,6 +144,9 @@ int falloutMain(int argc, char** argv)
             case MAIN_MENU_NEW_GAME:
                 mainMenuWindowHide(true);
                 mainMenuWindowFree();
+                #ifdef __3DS__
+    setActiveRectMap(DISPLAY_CHAR_SELECT);
+#endif
                 if (characterSelectorOpen() == 2) {
                     gameMoviePlay(MOVIE_ELDER, GAME_MOVIE_STOP_MUSIC);
                     randomSeedPrerandom(-1);
@@ -153,6 +190,10 @@ int falloutMain(int argc, char** argv)
                     mainMenuWindowHide(true);
                     mainMenuWindowFree();
 
+#ifdef __3DS__
+    setActiveRectMap(DISPLAY_FULL);
+#endif
+
                     // NOTE: Uninline.
                     main_loadgame_new();
 
@@ -193,7 +234,20 @@ int falloutMain(int argc, char** argv)
                 break;
             case MAIN_MENU_OPTIONS:
                 mainMenuWindowHide(true);
+#ifdef __3DS__
+                {
+                    int action = ctrModProfileMenu();
+                    if (action == 1) doPreferences(true);
+                    if (action == 2) {
+                        ctrModProfileStage("Closing main menu after system quit");
+                        done = true;
+                        mainMenuWindowFree();
+                        backgroundSoundDelete();
+                    }
+                }
+#else
                 doPreferences(true);
+#endif
                 break;
             case MAIN_MENU_CREDITS:
                 mainMenuWindowHide(true);
@@ -209,7 +263,12 @@ int falloutMain(int argc, char** argv)
             case MAIN_MENU_EXIT:
             case -1:
                 done = true;
+#ifdef __3DS__
+                ctrModProfileStage("Main menu exit requested");
+                mainMenuWindowHide(_game_user_wants_to_quit != 3);
+#else
                 mainMenuWindowHide(true);
+#endif
                 mainMenuWindowFree();
                 backgroundSoundDelete();
                 break;
@@ -254,7 +313,13 @@ static void main_exit_system()
 {
     backgroundSoundDelete();
 
+#ifdef __3DS__
+    ctrModProfileStage("Engine cleanup begin");
+#endif
     gameExit();
+#ifdef __3DS__
+    ctrModProfileStage("Engine cleanup complete");
+#endif
 }
 
 // 0x480D4C
@@ -314,6 +379,9 @@ static void main_unload_new()
 // 0x480E48
 static void mainLoop()
 {
+    #ifdef __3DS__
+    setActiveRectMap(DISPLAY_GUI);
+#endif
     bool cursorWasHidden = cursorIsHidden();
     if (cursorWasHidden) {
         mouseShowCursor();
@@ -323,10 +391,13 @@ static void mainLoop()
 
     scriptsEnable();
 
+    O3dsGameplayProfile gameplay;
     while (_game_user_wants_to_quit == 0) {
         sharedFpsLimiter.mark();
+        gameplay.begin();
 
         int keyCode = inputGetInput();
+        gameplay.mark(0);
 
         // SFALL: MainLoopHook.
         sfall_gl_scr_process_main();
@@ -347,8 +418,12 @@ static void mainLoop()
             _game_user_wants_to_quit = 2;
         }
 
+        gameplay.mark(1);
         renderPresent();
+        gameplay.mark(2);
         sharedFpsLimiter.throttle();
+        gameplay.mark(3);
+        gameplay.end();
     }
 
     scriptsDisable();
@@ -361,6 +436,9 @@ static void mainLoop()
 // 0x48118C
 static void showDeath()
 {
+    #ifdef __3DS__
+    setActiveRectMap(DISPLAY_DEAD);
+#endif
     artCacheFlush();
     colorCycleDisable();
     gameMouseSetCursor(MOUSE_CURSOR_NONE);
