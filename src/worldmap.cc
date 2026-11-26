@@ -1,4 +1,9 @@
 #include "worldmap.h"
+#include "worldmap_area_name.h"
+#ifdef __3DS__
+#include "platform/ctr/ctr_rectmap.h"
+#include "platform/ctr/ctr_gfx.h"
+#endif
 
 #include <assert.h>
 #include <ctype.h>
@@ -2448,7 +2453,8 @@ static int wmAreaInit()
                 exit(1);
             }
 
-            strncpy(city->name, str, 40);
+            strncpy(city->name, str, sizeof(city->name) - 1);
+            city->name[sizeof(city->name) - 1] = '\0';
 
             if (!configGetString(&cfg, section, "world_pos", &str)) {
                 showMesageBox("\nwmConfigInit::Error loading areas!");
@@ -2972,6 +2978,29 @@ void wmWorldMap()
     wmWorldMapFunc(0);
 }
 
+#ifdef __3DS__
+static rectMap_e wmPreviousLayout = DISPLAY_GUI;
+static bool wmLayoutActive = false;
+
+static void wmRestore3dsLayout()
+{
+    if (wmLayoutActive) {
+        wmLayoutActive = false;
+        setActiveRectMap(wmPreviousLayout);
+        ctr_gfx_invalidate();
+    }
+}
+#endif
+
+// Restore the gameplay display before map loading (including forced encounters).
+static void wmLoadMapFromWorldMap(int map)
+{
+#ifdef __3DS__
+    wmRestore3dsLayout();
+#endif
+    mapLoadById(map);
+}
+
 // 0x4BFE10
 static int wmWorldMapFunc(int a1)
 {
@@ -3115,7 +3144,7 @@ static int wmWorldMapFunc(int a1)
                         }
 
                         wmFadeOut();
-                        mapLoadById(wmGenData.encounterMapId);
+                        wmLoadMapFromWorldMap(wmGenData.encounterMapId);
                     }
                     break;
                 }
@@ -3170,7 +3199,7 @@ static int wmWorldMapFunc(int a1)
                         }
 
                         wmFadeOut();
-                        mapLoadById(map);
+                        wmLoadMapFromWorldMap(map);
                         break;
                     }
                 }
@@ -3208,7 +3237,7 @@ static int wmWorldMapFunc(int a1)
                         }
 
                         wmFadeOut();
-                        mapLoadById(map);
+                        wmLoadMapFromWorldMap(map);
                     }
                 }
             }
@@ -3356,7 +3385,7 @@ static int wmRndEncounterOccurred()
             }
 
             wmFadeOut();
-            mapLoadById(MAP_IN_GAME_MOVIE1);
+            wmLoadMapFromWorldMap(MAP_IN_GAME_MOVIE1);
             return 1;
         }
     }
@@ -3380,7 +3409,7 @@ static int wmRndEncounterOccurred()
             wmBlinkRndEncounterIcon(special);
         }
 
-        mapLoadById(wmForceEncounterMapId);
+        wmLoadMapFromWorldMap(wmForceEncounterMapId);
 
         wmForceEncounterMapId = -1;
         wmForceEncounterFlags = 0;
@@ -4492,6 +4521,18 @@ static int wmInterfaceInit()
         return -1;
     }
 
+#ifdef __3DS__
+    wmPreviousLayout = ctr_rectMap.main;
+    wmLayoutActive = true;
+    setWorldMapOrigin(worldmapWindowX, worldmapWindowY);
+    setActiveRectMap(DISPLAY_WORLDMAP);
+    ctr_gfx_invalidate();
+    mouseHideCursor();
+    _mouse_set_position(worldmapWindowX + WM_VIEW_X + WM_VIEW_WIDTH / 2,
+        worldmapWindowY + WM_VIEW_Y + WM_VIEW_HEIGHT / 2);
+    mouseShowCursor();
+#endif
+
     fid = buildFid(OBJ_TYPE_INTERFACE, 136, 0, 0, 0);
     if (!_backgroundFrmImage.lock(fid)) {
         return -1;
@@ -4741,6 +4782,9 @@ static int wmInterfaceInit()
 // 0x4C2E44
 static int wmInterfaceExit()
 {
+#ifdef __3DS__
+    wmRestore3dsLayout();
+#endif
     int i;
     TileInfo* tile;
 
@@ -5558,11 +5602,7 @@ static bool wmCursorIsVisible()
 // 0x4C44D8
 static int wmGetAreaName(CityInfo* city, char* name)
 {
-    MessageListItem messageListItem;
-
-    getmsg(&gMapMessageList, &messageListItem, city->areaId + 1500);
-    strncpy(name, messageListItem.text, 40);
-
+    copyWorldmapAreaName(&gMapMessageList, city->areaId, city->name, name, CITY_NAME_SIZE);
     return 0;
 }
 
@@ -5571,12 +5611,12 @@ static int wmGetAreaName(CityInfo* city, char* name)
 // 0x4C450C
 int wmGetAreaIdxName(int areaIdx, char* name)
 {
-    MessageListItem messageListItem;
+    if (!cityIsValid(areaIdx)) {
+        copyWorldmapAreaName(nullptr, -1, nullptr, name, CITY_NAME_SIZE);
+        return 0;
+    }
 
-    getmsg(&gMapMessageList, &messageListItem, 1500 + areaIdx);
-    strncpy(name, messageListItem.text, 40);
-
-    return 0;
+    return wmGetAreaName(&(wmAreaInfoList[areaIdx]), name);
 }
 
 // Returns true if world area is known.

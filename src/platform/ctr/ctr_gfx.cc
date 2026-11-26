@@ -51,6 +51,8 @@ static uint32_t profileDrawCalls;
 static uint32_t lastSceneDraw;
 static bool sceneValid;
 static bool rendererInitialized;
+static bool zoneLoading = false;
+static bool zoneLoadingPresented = false;
 static SceneSnapshot lastScene;
 // Only gameplay layouts use this fast path. Other layouts, movies and
 // debug overlays always retain the V8 draw behavior. Compare geometry
@@ -367,9 +369,22 @@ void drawRects()
         case DISPLAY_MODS:
             drawRect(120, 0, 400, 240, 0, 0, 400, 240);
             break;
+        case DISPLAY_WORLDMAP: {
+            if (worldMapScreensSwapped()) {
+                for (int i = 0; i < numRectsInMap[DISPLAY_WORLDMAP]; ++i) {
+                    const auto* r = rectMaps[DISPLAY_WORLDMAP][i];
+                    drawRect(r->src_x, r->src_y, r->src_w, r->src_h,
+                        40.f + r->dst_x, r->dst_y, r->dst_w, r->dst_h);
+                }
+            } else {
+                const auto r = worldMapViewportRect();
+                drawRect(r.src_x, r.src_y, r.src_w, r.src_h,
+                    r.dst_x, r.dst_y, r.dst_w, r.dst_h);
+            }
+            break;
+        }
         case DISPLAY_OPTIONS:
         case DISPLAY_CHAR_SELECT:
-        case DISPLAY_WORLDMAP:
         case DISPLAY_FULL:
             drawRect(offsetX, (240 - offsetY), 400, 240, 0,   0, 400, 240);
             break;
@@ -390,7 +405,6 @@ void drawRects()
 		case DISPLAY_DIALOG:
         case DISPLAY_SKILLDEX:
         case DISPLAY_INVENTORY_TRADE:
-        case DISPLAY_WORLDMAP:
             drawFrameRect();
 
         default:
@@ -512,6 +526,14 @@ void drawRects()
                 );
             }
 
+        case DISPLAY_WORLDMAP:
+            if (ctr_rectMap.active == DISPLAY_WORLDMAP && worldMapScreensSwapped()) {
+                const auto r = worldMapViewportRect();
+                drawRect(r.src_x, r.src_y, r.src_w, r.src_h,
+                    r.dst_x, r.dst_y, r.dst_w, r.dst_h);
+                break;
+            }
+            [[fallthrough]];
         case DISPLAY_FULL:
             if (ctr_rectMap.active == DISPLAY_FULL && ctr_input.mode == DISPLAY_MODE_FULL_TOP)
                 break;
@@ -553,8 +575,48 @@ void ctr_gfx_copy_rect(const uint8_t* src, int srcPitch, uint8_t* dst, int dstPi
     renderRows.copyRect(src, srcPitch, dst, dstPitch, width, height, destY, forceFullUpload);
 }
 
+// Native text is independent of the game palette, including world-map fade to black.
+// No game windows, save state, or input mappings are changed during this display.
+void ctr_gfx_set_zone_loading(bool enabled)
+{
+    if (zoneLoading == enabled) return;
+    zoneLoading = enabled;
+    zoneLoadingPresented = false;
+    ctr_gfx_invalidate();
+}
+
+static void drawZoneLoading()
+{
+    if (zoneLoadingPresented || !rendererInitialized || !overlayTextBuf) return;
+    beginRender(true);
+    C2D_Prepare();
+    C2D_TextBufClear(overlayTextBuf);
+    C2D_Text heading, detail;
+    C2D_TextParse(&heading, overlayTextBuf, "LOADING AREA...");
+    C2D_TextOptimize(&heading);
+    C2D_TextParse(&detail, overlayTextBuf, "Please wait...");
+    C2D_TextOptimize(&detail);
+    const auto green = C2D_Color32f(0.55f, 0.95f, 0.38f, 1.f);
+    C3D_RenderTargetClear(topRenderTarget, C3D_CLEAR_ALL, 0, 0);
+    C2D_SceneTarget(topRenderTarget);
+    C2D_DrawText(&heading, C2D_WithColor | C2D_AlignCenter,
+        ctr_gfx.isWide ? 400.f : 200.f, 100.f, 0.5f, 0.8f, 0.8f, green);
+    C2D_Flush();
+    C3D_RenderTargetClear(bottomRenderTarget, C3D_CLEAR_ALL, 0, 0);
+    C2D_SceneTarget(bottomRenderTarget);
+    C2D_DrawText(&detail, C2D_WithColor | C2D_AlignCenter,
+        160.f, 110.f, 0.5f, 0.6f, 0.6f, green);
+    C2D_Flush();
+    finishRender();
+    zoneLoadingPresented = true;
+}
+
 void ctr_gfx_draw(SDL_Surface* gSdlSurface)
 {
+    if (zoneLoading) {
+        drawZoneLoading();
+        return;
+    }
     if (gSdlSurface == nullptr || gSdlSurface->format == nullptr
         || gSdlSurface->format->palette == nullptr || gSdlSurface->pixels == nullptr
         || gSdlSurface->format->palette->colors == nullptr

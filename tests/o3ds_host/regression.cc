@@ -14,6 +14,7 @@
 #include <unistd.h>
 #include <string>
 #include "message.cc" // test internal lookup and insertion functions
+#include "worldmap_area_name.h"
 #include "platform_compat.h"
 #include "platform/ctr/ctr_original_menu.h"
 using namespace fallout;
@@ -82,6 +83,31 @@ int main() {
     for(int i: {INT_MAX, 7, -100, INT_MIN, 0, 25, 7}) { MessageListItem e{i,0,empty,value}; assert(_message_add(&m,&e)); }
     assert(m.entries_num==6); for(int i=1;i<m.entries_num;i++) assert(m.entries[i-1].num<m.entries[i].num);
     MessageListItem e{7,0,empty,replacement}; assert(_message_add(&m,&e)); assert(messageListGetItem(&m,&e)); assert(!strcmp(e.text,replacement)); int index; assert(!_message_find(&m,6,&index)); assert(m.entries[index].num==7); assert(messageListFree(&m)); puts("PASS sorted message insertion, duplicates, extreme IDs");
+    {
+        MessageList names{};
+        char audio[] = "", localized[] = "Localized Arroyo", blank[] = "";
+        MessageListItem entry{1500, 0, audio, localized};
+        assert(_message_add(&names, &entry));
+        entry.num = 1502; entry.text = blank; assert(_message_add(&names, &entry));
+        char label[40];
+        copyWorldmapAreaName(&names, 0, "Arroyo", label, sizeof(label));
+        assert(!strcmp(label, "Localized Arroyo"));
+        copyWorldmapAreaName(&names, 1, "Klamath", label, sizeof(label));
+        assert(!strcmp(label, "Klamath"));
+        copyWorldmapAreaName(&names, 2, "Mod town", label, sizeof(label));
+        assert(!strcmp(label, "Mod town"));
+        copyWorldmapAreaName(nullptr, 3, "New mod location", label, sizeof(label));
+        assert(!strcmp(label, "New mod location"));
+        copyWorldmapAreaName(&names, -1, nullptr, label, sizeof(label));
+        assert(!strcmp(label, "Unknown"));
+        copyWorldmapAreaName(&names, INT_MAX, nullptr, label, sizeof(label));
+        assert(!strcmp(label, "Unknown"));
+        copyWorldmapAreaName(&names, 1, "123456789", label, 5);
+        assert(!strcmp(label, "1234"));
+        copyWorldmapAreaName(&names, 1, "test", label, 1); assert(label[0] == 0);
+        assert(messageListFree(&names));
+        puts("PASS world-map localized labels, missing/empty entries, mod fallback and bounded output");
+    }
     std::vector<unsigned char> data(23017); for(size_t i=0;i<data.size();i++) data[i]=(i*31+i/7)%256;
     writeFile("source.bin",data); assert(fileCopyCompressed("source.bin","source.gz")==0); assert(fileCopyDecompressed("source.gz","restored.bin")==0); checkFile("restored.bin",data); assert(fileCopyDecompressed("source.bin","plain.bin")==0); checkFile("plain.bin",data); assert(fileCopyCompressed("source.gz","copy.gz")==0); assert(fileCopyDecompressed("copy.gz","again.bin")==0); checkFile("again.bin",data); assert(fileCopyDecompressed("missing","bad.bin")==-1); puts("PASS block gzip and plain-file copies");
     // V8 captures exact small restored data, rejects oversized snapshots,

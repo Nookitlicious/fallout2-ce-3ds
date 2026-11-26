@@ -1,6 +1,7 @@
 #include <iostream>
 #include <stdlib.h>
 #include <cmath>
+#include <algorithm>
 
 #include "ctr_rectmap.h"
 #include "ctr_main_menu_layout.h"
@@ -255,6 +256,91 @@ void ctr_rectmap_exit()
     }
 }
 
+ScopedCharacterModalMap::ScopedCharacterModalMap(rectMap_e map, int x, int y, int w, int h, bool enabled)
+    : previous_(ctr_rectMap.main), enabled_(enabled && w > 0 && h > 0)
+{
+    if (enabled_) {
+        setRectMapPos(map, x, y, w, h, false);
+        setActiveRectMap(map);
+    }
+}
+
+ScopedCharacterModalMap::~ScopedCharacterModalMap()
+{
+    if (enabled_) setActiveRectMap(previous_);
+}
+
+void characterModalTouchToTexture(rectMap_e map, int x, int y, int* outX, int* outY)
+{
+    const auto* r = rectMaps[map][0];
+    const float top = 240.f - r->dst_y - r->dst_h;
+    // Letterbox taps land outside the centered modal, not on the last button.
+    *outX = 0;
+    *outY = 0;
+    if (x >= r->dst_x && x < r->dst_x + r->dst_w && y >= top && y < top + r->dst_h) {
+        *outX = static_cast<int>(r->src_x) + std::clamp(static_cast<int>((x-r->dst_x)*r->src_w/r->dst_w), 0, static_cast<int>(r->src_w)-1);
+        *outY = static_cast<int>(r->src_y) + std::clamp(static_cast<int>((y-top)*r->src_h/r->dst_h), 0, static_cast<int>(r->src_h)-1);
+    }
+}
+
+void scrollCharacterView(int delta)
+{
+    if (!isAgeWindow && !isSexWindow) offsetY_char = std::clamp(offsetY_char + delta, 0, 525);
+}
+
+static bool worldMapSwapped = false;
+
+bool worldMapScreensSwapped() { return worldMapSwapped; }
+
+void toggleWorldMapScreens() { worldMapSwapped = !worldMapSwapped; }
+
+rectMap_t worldMapViewportRect()
+{
+    auto r = *rectMaps[DISPLAY_WORLDMAP_TOP][0];
+    if (worldMapSwapped) r.dst_x -= 40.f;
+    return r;
+}
+
+void setWorldMapOrigin(int x, int y)
+{
+    worldMapSwapped = false;
+    auto* top = rectMaps[DISPLAY_WORLDMAP_TOP][0];
+    top->src_x = x + 22;
+    top->src_y = y + 21;
+    for (int i = 0; i < numRectsInMap[DISPLAY_WORLDMAP]; ++i) {
+        auto* r = rectMaps[DISPLAY_WORLDMAP][i];
+        r->src_x = x + 472;
+        r->src_y = y + (i == 0 ? 0 : 320);
+    }
+}
+
+void worldMapTouchToTexture(int x, int y, int* outX, int* outY)
+{
+    const auto* first = rectMaps[DISPLAY_WORLDMAP][0];
+    // Inert border, outside the map viewport and every control button.
+    *outX = static_cast<int>(first->src_x) + 3;
+    *outY = static_cast<int>(first->src_y) + 470;
+    if (worldMapSwapped) {
+        const auto r = worldMapViewportRect();
+        const float top = 240 - r.dst_y - r.dst_h;
+        if (x >= r.dst_x && x < r.dst_x + r.dst_w && y >= top && y < top + r.dst_h) {
+            *outX = static_cast<int>(r.src_x + (x - r.dst_x) * r.src_w / r.dst_w);
+            *outY = static_cast<int>(r.src_y + (y - top) * r.src_h / r.dst_h);
+        }
+        return;
+    }
+    for (int i = 0; i < numRectsInMap[DISPLAY_WORLDMAP]; ++i) {
+        const auto* r = rectMaps[DISPLAY_WORLDMAP][i];
+        const float top = 240 - r->dst_y - r->dst_h;
+        if (x >= r->dst_x && x < r->dst_x + r->dst_w
+            && y >= top && y < top + r->dst_h) {
+            *outX = static_cast<int>(r->src_x + (x - r->dst_x) * r->src_w / r->dst_w);
+            *outY = static_cast<int>(r->src_y + (y - top) * r->src_h / r->dst_h);
+            return;
+        }
+    }
+}
+
 void ctr_rectmap_init()
 {
     rectmap_init();
@@ -305,7 +391,11 @@ void ctr_rectmap_init()
     addRectMap(DISPLAY_INVENTORY_TRADE,   3,   0, 290,  80, 140,   0,   0,  60,  80); // during barter
     addRectMap(DISPLAY_INVENTORY_TRADE,   4, 560, 290,  80, 140, 260,   0,  60,  80); // during barter
 
-    addRectMap(DISPLAY_WORLDMAP,          0,   0,   0, 640, 480,   0,   0, 320, 240);
+    // Original Fallout 2 world-map viewport and right-side control panel.
+    // Preserve the map's aspect ratio and split the tall panel into two columns.
+    addRectMap(DISPLAY_WORLDMAP_TOP, 0, 22, 21, 450, 443, 78, 0, 244, 240);
+    addRectMap(DISPLAY_WORLDMAP, 0, 472, 0, 168, 320, 8, 0, 126, 240);
+    addRectMap(DISPLAY_WORLDMAP, 1, 472, 320, 168, 160, 144, 40, 168, 160);
     addRectMap(DISPLAY_PIPBOY,            0,   0, 330, 254, 150,   0,   0, 320, 190);
     addRectMap(DISPLAY_PIPBOY,            1,   0,   0, 254,  40,   0, 190, 320,  50);
     addRectMap(DISPLAY_AUTOMAP, 0, 60, 0, 519, 480, 30, 0, 260, 240);
@@ -319,6 +409,9 @@ void ctr_rectmap_init()
     addRectMap(DISPLAY_CHAR,              1, 340,   0, 320, 240,   0,   0, 320, 240); // right
     addRectMap(DISPLAY_CHAR,              2,  10,   0, 320,  30,   0, 210, 320,  30); // name / age / sex
     addRectMap(DISPLAY_CHAR,              3, 336, 450, 300,  25,   0,   0, 320,  25); // options / done / cancel
+
+    addRectMap(DISPLAY_CHAR_OPTIONS,     0, 0, 0, 640, 480, 0, 0, 320, 240);
+    addRectMap(DISPLAY_CHAR_FILE,        0, 0, 0, 640, 480, 0, 0, 320, 240);
 
     addRectMap(DISPLAY_CHAR_EDIT_AGE,     0, 155,   0, 140,  70, 145, 170, 140,  70);
     addRectMap(DISPLAY_CHAR_EDIT_SEX,     0, 195,   0, 140,  70, 180, 170, 140,  70);

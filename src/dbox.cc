@@ -636,6 +636,13 @@ int showLoadFileDialog(char* title, char** fileList, char* dest, int fileListLen
         return -1;
     }
 
+#ifdef __3DS__
+    Rect fileRect{};
+    const bool fromCharacter = ctr_rectMap.main == DISPLAY_CHAR || ctr_rectMap.main == DISPLAY_CHAR_OPTIONS;
+    const bool mappedFile = fromCharacter && windowGetRect(win, &fileRect) == 0;
+    ScopedCharacterModalMap fileMap(DISPLAY_CHAR_FILE, fileRect.left, fileRect.top,
+        rectGetWidth(&fileRect), rectGetHeight(&fileRect), mappedFile);
+#endif
     unsigned char* windowBuffer = windowGetBuffer(win);
     memcpy(windowBuffer, frmImages[FILE_DIALOG_FRM_BACKGROUND].getData(), backgroundWidth * backgroundHeight);
 
@@ -1001,6 +1008,13 @@ int showSaveFileDialog(char* title, char** fileList, char* dest, int fileListLen
         return -1;
     }
 
+#ifdef __3DS__
+    Rect fileRect{};
+    const bool fromCharacter = ctr_rectMap.main == DISPLAY_CHAR || ctr_rectMap.main == DISPLAY_CHAR_OPTIONS;
+    const bool mappedFile = fromCharacter && windowGetRect(win, &fileRect) == 0;
+    ScopedCharacterModalMap fileMap(DISPLAY_CHAR_FILE, fileRect.left, fileRect.top,
+        rectGetWidth(&fileRect), rectGetHeight(&fileRect), mappedFile);
+#endif
     unsigned char* windowBuffer = windowGetBuffer(win);
     memcpy(windowBuffer, frmImages[FILE_DIALOG_FRM_BACKGROUND].getData(), backgroundWidth * backgroundHeight);
 

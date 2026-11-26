@@ -1,5 +1,6 @@
 #include <string.h>
 #include <stdio.h>
+#include <algorithm>
 
 #include "ctr_input.h"
 #include "ctr_mod_profiles.h"
@@ -15,6 +16,7 @@
 //#include "plib/gnw/gnw.h"
 #include "svga.h"
 #include "input.h"
+#include "kb.h"
 #include "character_editor.h"
 #include "mouse.h"
 #include "touch.h"
@@ -97,12 +99,19 @@ void ctr_input_get_touch(int *newX, int *newY)
 {
     switch (ctr_rectMap.active)
     {
+        case DISPLAY_WORLDMAP:
+            worldMapTouchToTexture(ctr_input.frame.touchX, ctr_input.frame.touchY, newX, newY);
+            break;
         case DISPLAY_MAIN:
             ctr_menu::mapTouch(ctr_input.frame.touchX, ctr_input.frame.touchY, newX, newY);
             break;
         case DISPLAY_FULL:
             *newX = (ctr_input.frame.touchX * screenGetWidth()) / 320;
             *newY = (ctr_input.frame.touchY * screenGetHeight()) / 240;
+            break;
+        case DISPLAY_CHAR_OPTIONS:
+        case DISPLAY_CHAR_FILE:
+            characterModalTouchToTexture(ctr_rectMap.active, ctr_input.frame.touchX, ctr_input.frame.touchY, newX, newY);
             break;
         case DISPLAY_CHAR:
             input_touch_to_texture(DISPLAY_CHAR,
@@ -273,15 +282,7 @@ void input_frame_axis(int *delta_x, int *delta_y)
                 }
             }
         } else if (ctr_rectMap.active == DISPLAY_CHAR) {
-            if (!isAgeWindow && !isSexWindow) {
-                offsetY_char += moveY;
-
-                if (offsetY_char < 0)
-                    offsetY_char=0;
-
-                if (offsetY_char > 525)
-                    offsetY_char=525;
-            }
+            scrollCharacterView(moveY);
         } else {
             *delta_x += moveX;
             *delta_y += moveY;
@@ -315,7 +316,7 @@ void input_frame_buttons(int *delta_x, int *delta_y, int *buttons)
         key_combi_flags |= FLAG_SELECT_DLEFT;
     }
 #endif
-    if (KEY_HELD(KEY_SELECT) && KEY_PRESS(KEY_DDOWN)) {
+    if (isGameplayRectMap(ctr_rectMap.main) && KEY_HELD(KEY_SELECT) && KEY_PRESS(KEY_DDOWN)) {
         manualScaleFactor -= 0.2f; // zoom out
         if (manualScaleFactor < 0.0f) {
             manualScaleFactor = 0.0f;
@@ -323,7 +324,7 @@ void input_frame_buttons(int *delta_x, int *delta_y, int *buttons)
         key_combi_flags |= FLAG_SELECT_DDOWN;
     }
 
-    if (KEY_HELD(KEY_SELECT) && KEY_PRESS(KEY_DUP)) {
+    if (isGameplayRectMap(ctr_rectMap.main) && KEY_HELD(KEY_SELECT) && KEY_PRESS(KEY_DUP)) {
         manualScaleFactor += 0.2f; // zoom in
         if (manualScaleFactor > 1.0f) {
             manualScaleFactor = 1.0f;
@@ -347,7 +348,10 @@ void input_frame_buttons(int *delta_x, int *delta_y, int *buttons)
         if (key_combi_flags) {
             key_combi_flags = FLAG_NONE;
         } else {
-            if (isGameplayRectMap(ctr_rectMap.main)) {
+            if (ctr_rectMap.active == DISPLAY_WORLDMAP) {
+                toggleWorldMapScreens();
+                ctr_gfx_invalidate();
+            } else if (isGameplayRectMap(ctr_rectMap.main)) {
                 ctr_input.mode = ((ctr_input.mode + 1) % DISPLAY_MODE_FULL_TOP);
                 setActiveRectMap(DISPLAY_LAST);
             }
@@ -355,6 +359,42 @@ void input_frame_buttons(int *delta_x, int *delta_y, int *buttons)
     }
 
     if (key_combi_flags == FLAG_NONE) {
+        if (ctr_rectMap.active == DISPLAY_CHAR_OPTIONS || ctr_rectMap.active == DISPLAY_CHAR_FILE) {
+            if (KEY_PRESS(KEY_B)) enqueueInputEvent(KEY_ESCAPE);
+            if (KEY_PRESS(KEY_A)) enqueueInputEvent(ctr_rectMap.active == DISPLAY_CHAR_FILE ? 500 : KEY_RETURN);
+            if (ctr_rectMap.active == DISPLAY_CHAR_FILE) {
+                if (KEY_PRESS(KEY_DUP)) enqueueInputEvent(KEY_ARROW_UP);
+                if (KEY_PRESS(KEY_DDOWN)) enqueueInputEvent(KEY_ARROW_DOWN);
+            }
+            oldpad = ctr_input.frame.kHeld;
+            return;
+        }
+        if (ctr_rectMap.active == DISPLAY_CHAR) {
+            if (KEY_HELD(KEY_DUP)) scrollCharacterView(-6);
+            if (KEY_HELD(KEY_DDOWN)) scrollCharacterView(6);
+            if (KEY_HELD(KEY_R)) *buttons |= MOUSE_STATE_LEFT_BUTTON_DOWN;
+            if (KEY_PRESS(KEY_L)) *buttons |= MOUSE_STATE_RIGHT_BUTTON_DOWN;
+            oldpad = ctr_input.frame.kHeld;
+            return;
+        }
+        if (ctr_rectMap.active == DISPLAY_WORLDMAP) {
+            // Use the engine's world-map arrow events, never isometric mapScroll.
+            static u32 previousDirection = 0;
+            static unsigned int lastPan = 0;
+            const u32 direction = ctr_input.frame.kHeld & (KEY_DUP | KEY_DDOWN | KEY_DLEFT | KEY_DRIGHT);
+            const unsigned int now = getTicks();
+            if (direction && (direction != previousDirection || now - lastPan >= 100)) {
+                if (direction & KEY_DUP) enqueueInputEvent(KEY_ARROW_UP);
+                if (direction & KEY_DDOWN) enqueueInputEvent(KEY_ARROW_DOWN);
+                if (direction & KEY_DLEFT) enqueueInputEvent(KEY_ARROW_LEFT);
+                if (direction & KEY_DRIGHT) enqueueInputEvent(KEY_ARROW_RIGHT);
+                lastPan = now;
+            }
+            previousDirection = direction;
+            if (KEY_HELD(KEY_A) || KEY_HELD(KEY_R)) *buttons |= MOUSE_STATE_LEFT_BUTTON_DOWN;
+            oldpad = ctr_input.frame.kHeld;
+            return;
+        }
         if (ctr_rectMap.active == DISPLAY_PIPBOY) {
             if (KEY_HELD(KEY_DUP)) *delta_y -= 4;
             if (KEY_HELD(KEY_DDOWN)) *delta_y += 4;
@@ -500,6 +540,23 @@ int ctr_input_frame(void)
     input_frame_axis(&delta_x, &delta_y);
     input_frame_buttons(&delta_x, &delta_y, &buttons);
 
+    if (ctr_rectMap.active == DISPLAY_WORLDMAP && (delta_x || delta_y)) {
+        // Circle Pad controls the top-screen cursor. After tapping the lower
+        // panel, return the cursor to the visible map on the next movement.
+        const auto* r = rectMaps[DISPLAY_WORLDMAP_TOP][0];
+        const int left = r->src_x, top = r->src_y;
+        const int right = left + static_cast<int>(r->src_w) - 1;
+        const int bottom = top + static_cast<int>(r->src_h) - 1;
+        int x, y; mouseGetPosition(&x, &y);
+        if (x < left || x > right || y < top || y > bottom) {
+            mouseHideCursor();
+            _mouse_set_position((left + right) / 2, (top + bottom) / 2);
+            mouseShowCursor();
+            mouseGetPosition(&x, &y);
+        }
+        delta_x = std::clamp(x + delta_x, left, right) - x;
+        delta_y = std::clamp(y + delta_y, top, bottom) - y;
+    }
     if (ctr_rectMap.active == DISPLAY_PIPBOY && (delta_x || delta_y)) {
         int x, y; mouseGetPosition(&x, &y);
         const int left = (screenGetWidth()-640)/2 + 254;

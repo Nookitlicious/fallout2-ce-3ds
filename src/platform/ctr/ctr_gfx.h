@@ -28,6 +28,7 @@ extern ctr_gfx_t ctr_gfx;
 
 void ctr_gfx_draw(SDL_Surface* gSdlSurface);
 void ctr_gfx_invalidate();
+void ctr_gfx_set_zone_loading(bool enabled);
 void ctr_gfx_copy_rect(const uint8_t* src, int srcPitch, uint8_t* dst, int dstPitch,
     int width, int height, int destY);
 

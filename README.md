@@ -2,7 +2,9 @@
 
 An unofficial enhanced fork of [MrHuu's Nintendo 3DS port](https://github.com/MrHuu/fallout2-ce-3ds) of [Fallout 2 Community Edition](https://github.com/alexbatalov/fallout2-ce). This fork focuses on Old Nintendo 3DS performance, dual-screen layouts, touch controls and experimental mod compatibility while retaining the original Fallout 2 gameplay.
 
-**Current release:** [v1.1 Beta](https://github.com/Nookitlicious/fallout2-ce-3ds/releases/tag/v1.1_beta) (CIA and 3DSX).
+**Version:** v1.1.1 Beta — [Release downloads (CIA and 3DSX)](https://github.com/Nookitlicious/fallout2-ce-3ds/releases).
+
+Previous version: [v1.1 Beta](https://github.com/Nookitlicious/fallout2-ce-3ds/releases/tag/v1.1_beta).
 
 > This is a beta, primarily tested on Old 3DS hardware. Back up your saves before updating or trying mods. A legally obtained copy of Fallout 2 is required; original game data is not included.
 
@@ -16,7 +18,34 @@ Photos from earlier development builds running on actual 3DS hardware. Final bet
   <img src="docs/screenshots/character-screen.jpg" alt="Character screen on Nintendo 3DS" width="240">
 </p>
 
-## What's new in v1.1 Beta
+## What's new in v1.1.1 Beta
+
+This maintenance update focuses on world map navigation, character creation and zone transitions while retaining the performance improvements and experimental mod support from v1.1.
+
+### World map
+
+- Dedicated dual-screen layout with the map on the top screen and destination controls on the touchscreen by default.
+- Press **SELECT** to swap the map and control panel between screens. With the map on the bottom screen, destinations can be selected directly by touch. Press SELECT again to switch back.
+- Use the D-pad to pan the world map, the Circle Pad to move the cursor, and A or R to select.
+- Added a fallback for location labels that display "Error": the game uses the configured area name from `city.txt` when a localized name is unavailable in `map.msg`.
+- Added gameplay layout restoration when leaving the world map or entering encounters.
+
+### Character creation
+
+- Dedicated touchscreen layout for the Options popup to address clipping.
+- Added D-pad scrolling alongside Circle Pad scrolling on the character screen.
+- Press **B** to close the Options popup or character file dialog.
+- Improved character save/load dialog layout and restoration of the character screen.
+
+### Zone loading
+
+- Added a native "LOADING AREA..." / "Please wait..." display during area loading, independent of the game's palette fades and without an intentional loading delay.
+
+### Testing status
+
+The initial redesigned world map was confirmed working on physical Old 3DS hardware. The remaining changes, including screen swapping, area-name fallback, character dialogs and zone loading, have been implemented but still need confirmed hardware results for the final v1.1.1 build. Full playthroughs and mod regression testing are still pending. Report any issues with the console model, build format (CIA or 3DSX), and active mod profile.
+
+## Improvements introduced in v1.1 Beta
 
 ### Performance and stability
 
@@ -48,7 +77,7 @@ You need a 3DS capable of running homebrew, an SD card and your own copy of Fall
 
 1. Install Fallout 2 on your PC and locate its game data.
 2. Create `3ds/fallout2/` at the root of your SD card. Copy `master.dat`, `critter.dat`, `patch000.dat` (if present), the `data/` directory and any separate `sound/` directory from your installed copy. Keep a backup of your original files and saves. If copying `fallout2.cfg`, use relative paths instead of PC-specific absolute paths.
-3. Download the CIA or 3DSX from the [v1.1 Beta release](https://github.com/Nookitlicious/fallout2-ce-3ds/releases/tag/v1.1_beta).
+3. Download the desired CIA or 3DSX from the [Releases page](https://github.com/Nookitlicious/fallout2-ce-3ds/releases). Choose v1.1.1 Beta when available, or v1.1 Beta if you need the previous build.
 4. For CIA, copy it to your SD card and install using FBI on a compatible homebrew-enabled system. Launch from the HOME Menu. For 3DSX, copy `fallout2-ce.3dsx` into `3ds/fallout2/` and launch it through the Homebrew Launcher.
 
 Example SD card layout (`sd:/` means the root of the SD card):
@@ -111,19 +140,23 @@ If a mod fails to start, the port attempts to recover to vanilla on the next lau
 
 ### Compatibility
 
+The results below are from earlier development and v1.1 testing; full compatibility has not been established for v1.1.1. Untested means compatibility is unknown, not that the mod is incompatible.
+
 | Game/mod | Status |
 | --- | --- |
 | Vanilla Fallout 2 | Tested on Old 3DS during development |
 | Unofficial Patch Updated (UPU) | Initial hardware testing; not fully validated |
 | Fallout: Nevada Extended 2.0.3.4 | Initial gameplay, combat, dialogue and save/load testing; no full playthrough |
-| Restoration Project, Fallout Et Tu, Olympus 2207 | Not supported/validated by this fork |
+| Restoration Project | Not tested on this fork; compatibility unknown |
+| Fallout et tu (Fallout 1 in 2) | Not tested on this fork; compatibility unknown |
+| Olympus 2207 | Not tested on this fork; compatibility unknown |
 | Sonora, Resurrection, Yesterday and other mods | Not tested by this fork |
 
 Some Sfall features, including script hook registration/dispatch, are not implemented. Mod startup, save compatibility, interface restoration and long-term stability still require additional testing. Do not assume that a mod running on desktop Community Edition will work on 3DS.
 
 ## Build from source (CIA and 3DSX)
 
-The 3DS target uses `Makefile.ctr`. A clean build was successfully completed using devkitPro on Windows, producing working CIA, 3DSX and ELF build outputs. Hardware validation of the newly compiled binaries is pending.
+The 3DS target uses `Makefile.ctr`. A clean build of v1.1 Beta was successfully completed using devkitPro on Windows, producing CIA, 3DSX and ELF files. The maintainer confirmed that a freshly compiled v1.1 build worked on hardware. Clean compilation and hardware validation of the final v1.1.1 release build are still pending.
 
 ### Requirements
 
@@ -150,11 +183,11 @@ make -f Makefile.ctr clean
 make -f Makefile.ctr
 ```
 
-For an exact release-source build, check out the corresponding release tag once its source reference has been verified. The expected build outputs are `fallout2-ce.cia`, `fallout2-ce.3dsx`, and `fallout2-ce.elf` (the latter is useful for crash diagnosis). The Makefile generates the RomFS texture from `os/ctr/gfx/frame_tex.t3s` and its PNG source using `tex3ds`; compiled outputs are not needed in source control. Install the compiled CIA or 3DSX and place your original game files on the SD card as described above. Keep your commercial game files outside the source checkout: the clean target deletes generated `romfs/` contents.
+For an exact release-source build, check out the desired release tag before compiling (`git checkout v1.1.1_beta` once that tag is published, or `git checkout v1.1_beta` for the previous release). The expected build outputs are `fallout2-ce.cia`, `fallout2-ce.3dsx`, and `fallout2-ce.elf` (the latter is useful for crash diagnosis). The Makefile generates the RomFS texture from `os/ctr/gfx/frame_tex.t3s` and its PNG source using `tex3ds`; compiled outputs are not needed in source control. Install the compiled CIA or 3DSX and place your original game files on the SD card as described above. Keep your commercial game files outside the source checkout: the clean target deletes generated `romfs/` contents.
 
 ## Reporting bugs and contributing
 
-Please report reproducible issues in this fork's [issue tracker](https://github.com/Nookitlicious/fallout2-ce-3ds/issues). Include the console model, build version, active mod and version, reproduction steps, and any relevant crash dump or `mod-startup.log`. Do not upload copyrighted game archives or private save files publicly. Comparisons against the original 3DS port are particularly useful. The `tests/o3ds_host/` directory contains development regression-test scripts; host tests do not substitute for hardware testing.
+Please report reproducible issues in this fork's [issue tracker](https://github.com/Nookitlicious/fallout2-ce-3ds/issues). Include the console model, build version, CIA or 3DSX format, active mod and version, reproduction steps, and any relevant crash dump or `mod-startup.log`. Do not upload copyrighted game archives or private save files publicly. Comparisons against the original 3DS port are particularly useful. The `tests/o3ds_host/` directory contains development regression-test scripts; host tests do not substitute for hardware testing.
 
 ## Credits and AI-assisted development
 

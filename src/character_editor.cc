@@ -3891,6 +3891,7 @@ static int characterEditorShowOptions()
         }
 
         if (err != 0) {
+            windowDestroy(win);
             if (err == 2) {
                 internal_free(down[index]);
             }
@@ -3903,6 +3904,12 @@ static int characterEditorShowOptions()
             return -1;
         }
 
+#ifdef __3DS__
+        Rect optionsRect{};
+        const bool mapped = windowGetRect(win, &optionsRect) == 0;
+        ScopedCharacterModalMap optionsMap(DISPLAY_CHAR_OPTIONS, optionsRect.left, optionsRect.top,
+            rectGetWidth(&optionsRect), rectGetHeight(&optionsRect), mapped);
+#endif
         fontSetCurrent(101);
 
         int rc = 0;

@@ -57,6 +57,9 @@ typedef enum {
     DISPLAY_MODS,
     DISPLAY_AUTOMAP,
     DISPLAY_SAVE_COMMENT,
+    DISPLAY_WORLDMAP_TOP,
+    DISPLAY_CHAR_OPTIONS,
+    DISPLAY_CHAR_FILE,
     DISPLAY_LAST
 } rectMap_e;
 
@@ -88,6 +91,27 @@ void restoreGameplayRectMap(rectMap_e previous);
 void setPreviousRectMap(int index);
 rectMap_e getPreviousRectMap(int index);
 
+// Character modal windows have separate maps so nested confirmation dialogs
+// can restore their parent without overwriting its geometry.
+void characterModalTouchToTexture(rectMap_e map, int x, int y, int* outX, int* outY);
+void scrollCharacterView(int delta);
+class ScopedCharacterModalMap {
+public:
+    ScopedCharacterModalMap(rectMap_e map, int x, int y, int w, int h, bool enabled = true);
+    ~ScopedCharacterModalMap();
+    ScopedCharacterModalMap(const ScopedCharacterModalMap&) = delete;
+    ScopedCharacterModalMap& operator=(const ScopedCharacterModalMap&) = delete;
+private:
+    rectMap_e previous_;
+    bool enabled_;
+};
+
+// World-map window coordinates are relative to the 640x480 game framebuffer.
+void setWorldMapOrigin(int x, int y);
+bool worldMapScreensSwapped();
+void toggleWorldMapScreens();
+rectMap_t worldMapViewportRect();
+void worldMapTouchToTexture(int x, int y, int* outX, int* outY);
 void ctr_rectmap_init();
 void ctr_rectmap_exit();
 
