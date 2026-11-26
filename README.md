@@ -2,11 +2,13 @@
 
 An unofficial enhanced fork of [MrHuu's Nintendo 3DS port](https://github.com/MrHuu/fallout2-ce-3ds) of [Fallout 2 Community Edition](https://github.com/alexbatalov/fallout2-ce). This fork focuses on Old Nintendo 3DS performance, dual-screen layouts, touch controls and experimental mod compatibility while retaining the original Fallout 2 gameplay.
 
-**Version:** v1.1.1 Beta — [Release downloads (CIA and 3DSX)](https://github.com/Nookitlicious/fallout2-ce-3ds/releases).
+**Recommended version:** v1.1.1 Beta — [Release downloads (CIA and 3DSX)](https://github.com/Nookitlicious/fallout2-ce-3ds/releases).
+
+**Experimental prerelease:** [v1.2 Alpha 8](https://github.com/Nookitlicious/fallout2-ce-3ds/releases/tag/v1.2-alpha8) — initial New 2DS XL CIA testing; Old 3DS/2DS testing needed.
 
 Previous version: [v1.1 Beta](https://github.com/Nookitlicious/fallout2-ce-3ds/releases/tag/v1.1_beta).
 
-> This is a beta, primarily tested on Old 3DS hardware. Back up your saves before updating or trying mods. A legally obtained copy of Fallout 2 is required; original game data is not included.
+> Earlier builds were tested on Old 3DS hardware. Alpha 8 is experimental and has not yet been validated on Old 3DS/2DS. Back up your saves before updating or trying mods. A legally obtained copy of Fallout 2 is required; original game data is not included.
 
 ## Preview
 
@@ -17,6 +19,15 @@ Photos from earlier development builds running on actual 3DS hardware. Final bet
   <img src="docs/screenshots/gameplay.jpg" alt="Dual-screen gameplay on Nintendo 3DS" width="240">
   <img src="docs/screenshots/character-screen.jpg" alt="Character screen on Nintendo 3DS" width="240">
 </p>
+
+## What's new in v1.2 Alpha 8
+
+- Experimental Sonora and Et Tu (Fallout 1 in 2) compatibility.
+- Et Tu directory-based mod loading, character creation and world map fixes.
+- Native Sfall movie filename replacements for the existing 17 movie slots.
+- Fixed graphical corruption during map transitions; the v1.1.1 loading overlay was removed.
+- Initial New 2DS XL CIA testing successful. The 3DSX was built but not independently tested. Old 3DS/2DS testing and full campaigns remain pending.
+- Known limitations: incomplete Sfall scripting, expanded movie slots, blank movie entries and subtitle compatibility. A compiler warning about possible subtitle path truncation remains.
 
 ## What's new in v1.1.1 Beta
 
@@ -77,8 +88,8 @@ You need a 3DS capable of running homebrew, an SD card and your own copy of Fall
 
 1. Install Fallout 2 on your PC and locate its game data.
 2. Create `3ds/fallout2/` at the root of your SD card. Copy `master.dat`, `critter.dat`, `patch000.dat` (if present), the `data/` directory and any separate `sound/` directory from your installed copy. Keep a backup of your original files and saves. If copying `fallout2.cfg`, use relative paths instead of PC-specific absolute paths.
-3. Download the desired CIA or 3DSX from the [Releases page](https://github.com/Nookitlicious/fallout2-ce-3ds/releases). Choose v1.1.1 Beta when available, or v1.1 Beta if you need the previous build.
-4. For CIA, copy it to your SD card and install using FBI on a compatible homebrew-enabled system. Launch from the HOME Menu. For 3DSX, copy `fallout2-ce.3dsx` into `3ds/fallout2/` and launch it through the Homebrew Launcher.
+3. Download the desired CIA or 3DSX from the [Releases page](https://github.com/Nookitlicious/fallout2-ce-3ds/releases). Choose v1.1.1 Beta for the recommended build or v1.2 Alpha 8 for experimental Sonora and Et Tu support.
+4. For CIA, copy it to your SD card and install using FBI on a compatible homebrew-enabled system. Launch from the HOME Menu. For 3DSX, copy the downloaded 3DSX (rename it to `fallout2-ce.3dsx`) into `3ds/fallout2/` and launch it through the Homebrew Launcher.
 
 Example SD card layout (`sd:/` means the root of the SD card):
 
@@ -126,7 +137,35 @@ sd:/3ds/fallout2/
         └── MODS/             # preserve installed mod resources
 ```
 
-The tree is illustrative, not a complete mod manifest. Keep the mod's other configuration files, archives and resources as supplied. The profile manager can use `master.dat` and `critter.dat` from the base game folder when they are not present in the profile; a mod's own versions take precedence. The `nevada` profile recognizes `Nevada.cfg` if `fallout2.cfg` is absent. Other profiles require `fallout2.cfg`. Preserve any internal `mods/mods_order.txt` and the archives it references. This port does not execute Windows DLLs; full Sfall compatibility is not implemented.
+The tree is illustrative, not a complete mod manifest. Keep the mod's other configuration files, archives and resources as supplied. The profile manager can use `master.dat` and `critter.dat` from the base game folder when they are not present in the profile; a mod's own versions take precedence. The `nevada` profile recognizes `Nevada.cfg` if `fallout2.cfg` is absent. Other profiles require `fallout2.cfg`, except `sonora` in Alpha 8, which requires its own `master.dat`, `critter.dat` and `fission.dat`. Preserve any internal `mods/mods_order.txt` and the archives it references. This port does not execute Windows DLLs; full Sfall compatibility is not implemented.
+
+### Alpha 8: Sonora and Et Tu installation
+
+Install each mod on PC first according to its author's instructions. Keep the original Fallout 2 archives in the base SD folder.
+
+- **Sonora:** Copy `master.dat`, `critter.dat`, `fission.dat` and `data/` from the installed Sonora folder directly into `mods/sonora/`.
+- **Et Tu:** Complete the PC installation, including extracting the required original Fallout 1 assets with UNDAT as directed by the mod author. Copy `Fallout2.cfg`, `ddraw.ini`, `sfall.dat`, `ce.dat`, `f2_res.dat`, `f2_res.ini`, `data/`, `mods/`, `Appearance/` and `config/` from the installed Fallout1in2 folder into `mods/ettu/`. Keep the internal mod order file and resources. Base Fallout 2 archives can be shared from the parent game folder. Use relative archive paths (`master.dat`, `critter.dat`) in the profile configuration.
+- Windows executables and DLLs shown in the examples are not required by the 3DS engine. Do not distribute commercial game assets.
+
+### Example mod folders on SD card
+
+These screenshots show example installed folders, not exhaustive requirements. Drive letters vary by PC.
+
+**Sonora**
+
+![Sonora folder](docs/screenshots/mod-sonora.png)
+
+**Nevada**
+
+![Nevada folder](docs/screenshots/mod-nevada.png)
+
+**Et Tu**
+
+![Et Tu folder](docs/screenshots/mod-ettu.png)
+
+**Unofficial Patch Updated**
+
+![Unofficial Patch Updated folder](docs/screenshots/mod-upu.png)
 
 To activate a profile:
 
@@ -140,23 +179,22 @@ If a mod fails to start, the port attempts to recover to vanilla on the next lau
 
 ### Compatibility
 
-The results below are from earlier development and v1.1 testing; full compatibility has not been established for v1.1.1. Untested means compatibility is unknown, not that the mod is incompatible.
+These are preliminary results from earlier builds and Alpha 8 development. No full campaign is verified. Alpha 8 Old 3DS/2DS testing is pending.
 
 | Game/mod | Status |
 | --- | --- |
-| Vanilla Fallout 2 | Tested on Old 3DS during development |
-| Unofficial Patch Updated (UPU) | Initial hardware testing; not fully validated |
-| Fallout: Nevada Extended 2.0.3.4 | Initial gameplay, combat, dialogue and save/load testing; no full playthrough |
-| Restoration Project | Not tested on this fork; compatibility unknown |
-| Fallout et tu (Fallout 1 in 2) | Not tested on this fork; compatibility unknown |
-| Olympus 2207 | Not tested on this fork; compatibility unknown |
-| Sonora, Resurrection, Yesterday and other mods | Not tested by this fork |
+| Vanilla Fallout 2 | Initial hardware testing successful |
+| Unofficial Patch Updated (UPU) | Preliminary hardware support |
+| Fallout: Nevada Extended 2.0.3.4 | Initial gameplay tested in earlier builds |
+| Fallout et tu (Fallout 1 in 2) | Initial New 2DS XL gameplay and movie fix tested |
+| Fallout: Sonora | Initial New 2DS XL gameplay tested |
+| Restoration Project, Olympus 2207, Resurrection, Yesterday | Untested; compatibility unknown |
 
 Some Sfall features, including script hook registration/dispatch, are not implemented. Mod startup, save compatibility, interface restoration and long-term stability still require additional testing. Do not assume that a mod running on desktop Community Edition will work on 3DS.
 
 ## Build from source (CIA and 3DSX)
 
-The 3DS target uses `Makefile.ctr`. A clean build of v1.1 Beta was successfully completed using devkitPro on Windows, producing CIA, 3DSX and ELF files. The maintainer confirmed that a freshly compiled v1.1 build worked on hardware. Clean compilation and hardware validation of the final v1.1.1 release build are still pending.
+The 3DS target uses `Makefile.ctr`. A clean build of v1.1 Beta was successfully completed using devkitPro on Windows, producing CIA, 3DSX and ELF files. The maintainer confirmed that a freshly compiled v1.1 build worked on hardware. Alpha 8 compiled successfully using devkitPro on Windows, producing CIA and 3DSX files. A clean rebuild of Alpha 8 has not been independently verified.
 
 ### Requirements
 
@@ -183,7 +221,7 @@ make -f Makefile.ctr clean
 make -f Makefile.ctr
 ```
 
-For an exact release-source build, check out the desired release tag before compiling (`git checkout v1.1.1_beta` once that tag is published, or `git checkout v1.1_beta` for the previous release). The expected build outputs are `fallout2-ce.cia`, `fallout2-ce.3dsx`, and `fallout2-ce.elf` (the latter is useful for crash diagnosis). The Makefile generates the RomFS texture from `os/ctr/gfx/frame_tex.t3s` and its PNG source using `tex3ds`; compiled outputs are not needed in source control. Install the compiled CIA or 3DSX and place your original game files on the SD card as described above. Keep your commercial game files outside the source checkout: the clean target deletes generated `romfs/` contents.
+For an exact release-source build, check out the desired release tag before compiling (`git checkout v1.2-alpha8` for the experimental alpha, or `git checkout v1.1.1_beta` for the recommended beta). The expected build outputs are `fallout2-ce.cia`, `fallout2-ce.3dsx`, and `fallout2-ce.elf` (the latter is useful for crash diagnosis). The Makefile generates the RomFS texture from `os/ctr/gfx/frame_tex.t3s` and its PNG source using `tex3ds`; compiled outputs are not needed in source control. Install the compiled CIA or 3DSX and place your original game files on the SD card as described above. Keep your commercial game files outside the source checkout: the clean target deletes generated `romfs/` contents.
 
 ## Reporting bugs and contributing
 
@@ -194,7 +232,7 @@ Please report reproducible issues in this fork's [issue tracker](https://github.
 - [Alexander Batalov and Fallout 2 Community Edition contributors](https://github.com/alexbatalov/fallout2-ce) — original Community Edition engine.
 - [MrHuu](https://github.com/MrHuu/fallout2-ce-3ds) — original Nintendo 3DS port and its platform-specific foundation.
 - [Sfall contributors](https://github.com/sfall-team/sfall) — Sfall features and scripting API; this fork implements only a subset.
-- The Unofficial Patch Updated and Fallout: Nevada development teams — their respective mods.
+- The Unofficial Patch Updated, Fallout: Nevada, Fallout: Sonora and Fallout et tu development teams — their respective mods.
 - Black Isle Studios and Interplay — the original Fallout 2 game.
 - Nookitlicious — enhanced fork maintainer, build compilation, hardware testing, bug reproduction and release management.
 
