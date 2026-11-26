@@ -110,6 +110,8 @@ const char* ctrModProfileArchive(const char* name) {
     resolved = regular(path(active)+"/"+name) ? path(active)+"/"+name : std::string(root)+"/"+name;
     return resolved.c_str();
 }
+bool ctrModProfileIsEtTu() { return active == "ettu"; }
+
 void ctrModProfileLoadArchives() {
     if (active == "sonora" || active == "ettu") {
         for (const char* file : {"fission.dat", "sfall.dat", "ce.dat"}) {

@@ -1,3 +1,6 @@
+#ifdef __3DS__
+#include "platform/ctr/ctr_mod_profiles.h"
+#endif
 #include "worldmap.h"
 #include "worldmap_area_name.h"
 #ifdef __3DS__
@@ -2542,7 +2545,13 @@ static int wmAreaInit()
 
     configFree(&cfg);
 
-    if (wmMaxAreaNum != CITY_COUNT) {
+    int expectedCityCount = CITY_COUNT;
+#ifdef __3DS__
+    if (ctrModProfileIsEtTu()) {
+        expectedCityCount = 65;
+    }
+#endif
+    if (wmMaxAreaNum != expectedCityCount) {
         showMesageBox("\nwmAreaInit::Error loading Cities!");
         exit(1);
     }
