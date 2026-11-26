@@ -42,6 +42,11 @@ std::string profileConfig(const std::string& n) {
     return n == "nevada" && !regular(standard) ? path(n)+"/Nevada.cfg" : standard;
 }
 bool ready(const std::string& n) {
+    if (n == "sonora") {
+        return regular(path(n)+"/master.dat")
+            && regular(path(n)+"/critter.dat")
+            && regular(path(n)+"/fission.dat");
+    }
     return validName(n) && (regular(path(n)+"/master.dat") || regular(std::string(root)+"/master.dat")) && (regular(path(n)+"/critter.dat") || regular(std::string(root)+"/critter.dat")) && regular(profileConfig(n));
 }
 std::vector<std::string> scan() {
@@ -106,6 +111,14 @@ const char* ctrModProfileArchive(const char* name) {
     return resolved.c_str();
 }
 void ctrModProfileLoadArchives() {
+    if (active == "sonora" || active == "ettu") {
+        for (const char* file : {"fission.dat", "sfall.dat", "ce.dat"}) {
+            if (regular(file)) {
+                int rc = dbOpen(file, 0, nullptr, 1);
+                ctrModProfileStage((std::string(rc == 0 ? "Opened " : "Failed to open ")+file).c_str());
+            }
+        }
+    }
     if (!ctrModProfileActive()) return;
     if (active == "nevada") {
         for (const char* file : {"sfall.dat", "mods/sfall_us.dat", "mods/INVENTORYFILTER.DAT"}) {
