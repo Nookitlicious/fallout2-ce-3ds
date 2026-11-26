@@ -16,6 +16,7 @@
 #include "palette.h"
 #include "platform_compat.h"
 #include "settings.h"
+#include "sfall_config.h"
 #include "svga.h"
 #include "text_font.h"
 #include "touch.h"
@@ -144,9 +145,25 @@ int gameMoviesSave(File* stream)
 // 0x44E690
 int gameMoviePlay(int movie, int flags)
 {
+    if (movie < 0 || movie >= MOVIE_COUNT) {
+        return -1;
+    }
+
     gGameMovieIsPlaying = true;
 
     const char* movieFileName = gMovieFileNames[movie];
+
+#ifdef __3DS__
+    if (gSfallConfigInitialized) {
+        char key[32];
+        char* replacement = nullptr;
+        snprintf(key, sizeof(key), "Movie%d", movie + 1);
+        if (configGetString(&gSfallConfig, SFALL_CONFIG_MISC_KEY, key, &replacement)
+            && replacement != nullptr && replacement[0] != '\0') {
+            movieFileName = replacement;
+        }
+    }
+#endif
     debugPrint("\nPlaying movie: %s\n", movieFileName);
 
     const char* language = settings.system.language.c_str();
@@ -155,17 +172,17 @@ int gameMoviePlay(int movie, int flags)
     bool movieFound = false;
 
     if (compat_stricmp(language, ENGLISH) != 0) {
-        snprintf(movieFilePath, sizeof(movieFilePath), "art\\%s\\cuts\\%s", language, gMovieFileNames[movie]);
+        snprintf(movieFilePath, sizeof(movieFilePath), "art\\%s\\cuts\\%s", language, movieFileName);
         movieFound = dbGetFileSize(movieFilePath, &movieFileSize) == 0;
     }
 
     if (!movieFound) {
-        snprintf(movieFilePath, sizeof(movieFilePath), "art\\cuts\\%s", gMovieFileNames[movie]);
+        snprintf(movieFilePath, sizeof(movieFilePath), "art\\cuts\\%s", movieFileName);
         movieFound = dbGetFileSize(movieFilePath, &movieFileSize) == 0;
     }
 
     if (!movieFound) {
-        debugPrint("\ngmovie_play() - Error: Unable to open %s\n", gMovieFileNames[movie]);
+        debugPrint("\ngmovie_play() - Error: Unable to open %s\n", movieFileName);
         gGameMovieIsPlaying = false;
         return -1;
     }
