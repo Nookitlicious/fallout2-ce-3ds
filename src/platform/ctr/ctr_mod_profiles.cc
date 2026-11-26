@@ -139,6 +139,19 @@ void ctrModProfileLoadArchives() {
         n=n.substr(first,n.find_last_not_of(" \t\r\n")-first+1);
         if(n[0]=='#'||n[0]==';') continue;
         if(n.size()<5 || n.size()>120 || n.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_- .")!=std::string::npos || n.find("..")!=std::string::npos) { ctrModProfileStage("Skipped unsupported archive order entry"); continue; }
+        if (active == "ettu") {
+            std::string folder = "mods/" + n;
+            struct stat st;
+            if (stat(folder.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
+                if (dbOpen(folder.c_str(), 0, nullptr, 1) == 0) {
+                    ++count;
+                    ctrModProfileStage(("Mounted directory: " + folder).c_str());
+                } else {
+                    ctrModProfileStage(("Failed to mount directory: " + folder).c_str());
+                }
+                continue;
+            }
+        }
         std::string ext=n.substr(n.size()-4); for(char& c:ext) if(c>='A'&&c<='Z') c+=32;
         if(ext!=".dat") { ctrModProfileStage("Skipped non-DAT archive order entry"); continue; }
         std::string file="mods/"+n;
