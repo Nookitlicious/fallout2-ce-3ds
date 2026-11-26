@@ -1,119 +1,179 @@
-# Fallout 2 Community Edition
+# Fallout 2 Community Edition — 3DS Enhanced
 
-Fallout 2 Community Edition is a fully working re-implementation of Fallout 2, with the same original gameplay, engine bugfixes, and some quality of life improvements, that works (mostly) hassle-free on multiple platforms.
+An unofficial enhanced fork of [MrHuu's Nintendo 3DS port](https://github.com/MrHuu/fallout2-ce-3ds) of [Fallout 2 Community Edition](https://github.com/alexbatalov/fallout2-ce). This fork focuses on Old Nintendo 3DS performance, dual-screen layouts, touch controls and experimental mod compatibility while retaining the original Fallout 2 gameplay.
 
-Popular Fallout 2 total conversion mods are partially supported. Original versions of Nevada and Sonora (that do not rely on extended features provided by Sfall) likely work, although there is no complete walkthrough confirmation yet. [Fallout 2 Restoration Project](https://github.com/BGforgeNet/Fallout2_Restoration_Project), [Fallout Et Tu](https://github.com/rotators/Fo1in2) and [Olympus 2207](https://olympus2207.com) are not yet supported. Other mods (particularly Resurrection and Yesterday) are not tested.
+**Current release:** [v1.1 Beta](https://github.com/Nookitlicious/fallout2-ce-3ds/releases/tag/v1.1_beta) (CIA and 3DSX).
 
-There is also [Fallout Community Edition](https://github.com/alexbatalov/fallout1-ce).
+> This is a beta, primarily tested on Old 3DS hardware. Back up your saves before updating or trying mods. A legally obtained copy of Fallout 2 is required; original game data is not included.
 
-## Installation
+## Preview
 
-You must own the game to play. Purchase your copy on [GOG](https://www.gog.com/game/fallout_2), [Epic Games](https://store.epicgames.com/p/fallout-2) or [Steam](https://store.steampowered.com/app/38410). Download latest [release](https://github.com/alexbatalov/fallout2-ce/releases) or build from source. You can also check latest [debug](https://github.com/alexbatalov/fallout2-ce/actions) build intended for testers.
+Photos from earlier development builds running on actual 3DS hardware. Final beta layouts may differ.
 
-### Windows
+<p>
+  <img src="docs/screenshots/main-menu.jpg" alt="Main menu on Nintendo 3DS" width="240">
+  <img src="docs/screenshots/gameplay.jpg" alt="Dual-screen gameplay on Nintendo 3DS" width="240">
+  <img src="docs/screenshots/character-screen.jpg" alt="Character screen on Nintendo 3DS" width="240">
+</p>
 
-Download and copy `fallout2-ce.exe` to your `Fallout2` folder. It serves as a drop-in replacement for `fallout2.exe`.
+## What's new in v1.1 Beta
 
-### Linux
+### Performance and stability
 
-- Use Windows installation as a base - it contains data assets needed to play. Copy `Fallout2` folder somewhere, for example `/home/john/Desktop/Fallout2`.
+- Old 3DS rendering, map loading, save/loading and memory-management optimizations.
+- Reduced unnecessary processing and improved artwork caching.
+- Artwork and heap safety checks, including a fix for a reproduced Nevada gameplay crash.
+- Improved shutdown cleanup and mod startup diagnostics.
 
-- Alternatively you can extract the needed files from the GoG installer:
+### Interface and controls
 
-```console
-$ sudo apt install innoextract
-$ innoextract ~/Downloads/setup_fallout2_2.1.0.18.exe -I app
-$ mv app Fallout2
+- Redesigned main menu with power armor artwork filling the top screen and dedicated bottom-screen menu buttons.
+- Improved dialogue text readability, clipping, and touchscreen response selection.
+- Improved inventory, character, skill selection and Automap layouts.
+- Redesigned Pip-Boy with separate content and controls, automatic cursor positioning, D-pad and Circle Pad navigation.
+- Improved touch mappings, physical navigation and message boxes.
+- Saving/loading indicators and fixes for software keyboard input, character names and save descriptions.
+- Changes intended to restore the adapted interface after movies and map transitions; additional regression testing is needed.
+
+### Experimental mods
+
+- Mod profile manager accessible from the main menu's Options screen.
+- Shared base game archives and experimental separate save profiles.
+- Initial compatibility with Unofficial Patch Updated (UPU) and Fallout: Nevada Extended.
+- Recovery to vanilla after incomplete mod startup, archive loading improvements and partial native Sfall scripting support.
+
+## Installation on Nintendo 3DS
+
+You need a 3DS capable of running homebrew, an SD card and your own copy of Fallout 2 ([GOG](https://www.gog.com/game/fallout_2), [Steam](https://store.steampowered.com/app/38410/) or another legitimate distribution).
+
+1. Install Fallout 2 on your PC and locate its game data.
+2. Create `3ds/fallout2/` at the root of your SD card. Copy `master.dat`, `critter.dat`, `patch000.dat` (if present), the `data/` directory and any separate `sound/` directory from your installed copy. Keep a backup of your original files and saves. If copying `fallout2.cfg`, use relative paths instead of PC-specific absolute paths.
+3. Download the CIA or 3DSX from the [v1.1 Beta release](https://github.com/Nookitlicious/fallout2-ce-3ds/releases/tag/v1.1_beta).
+4. For CIA, copy it to your SD card and install using FBI on a compatible homebrew-enabled system. Launch from the HOME Menu. For 3DSX, copy `fallout2-ce.3dsx` into `3ds/fallout2/` and launch it through the Homebrew Launcher.
+
+Example SD card layout (`sd:/` means the root of the SD card):
+
+```text
+sd:/
+└── 3ds/
+    └── fallout2/
+        ├── fallout2-ce.3dsx     # 3DSX installation only
+        ├── master.dat
+        ├── critter.dat
+        ├── patch000.dat         # if present in your installation
+        ├── fallout2.cfg         # configuration, if present
+        ├── data/
+        ├── sound/               # if separate from data/
+        └── mods/                # optional
 ```
 
-- Download and copy `fallout2-ce` to this folder.
+Game content is read from the SD card for both the CIA and 3DSX; do not embed the original commercial game files into the CIA or commit them to this repository.
 
-- Install [SDL2](https://libsdl.org/download-2.0.php):
+### Configuration
 
-```console
-$ sudo apt install libsdl2-2.0-0
+The main configuration file is `fallout2.cfg`. Ensure the archive and patch paths match the files on the SD card. Music may be under `data/sound/music/` or `sound/music/` depending on your original installation; check `music_path1` if music is missing. Keep the 3DS port's adapted display settings rather than copying desktop high-resolution settings. Windows Sfall DLLs cannot run on the 3DS.
+
+## Installing mods
+
+Start with a working vanilla installation before adding mods. Install the desired mod on your PC in a separate Fallout 2 folder and follow the mod author's instructions. Disable desktop-only high-resolution patches where applicable. Copy the installed mod's files into its own profile under `sd:/3ds/fallout2/mods/`, retaining the internal folder structure. Use lowercase profile names with letters, numbers, underscores or hyphens. Do not nest another installation folder inside the profile.
+
+Example profiles:
+
+```text
+sd:/3ds/fallout2/
+├── master.dat
+├── critter.dat
+└── mods/
+    ├── upu/
+    │   ├── fallout2.cfg
+    │   └── ...               # UPU files and directories
+    └── nevada/
+        ├── Nevada.cfg        # or fallout2.cfg
+        ├── Patch000.dat
+        ├── Patch001.dat
+        ├── sfall.dat
+        ├── ddraw.ini
+        ├── DATA/
+        └── MODS/             # preserve installed mod resources
 ```
 
-- Run `./fallout2-ce`.
+The tree is illustrative, not a complete mod manifest. Keep the mod's other configuration files, archives and resources as supplied. The profile manager can use `master.dat` and `critter.dat` from the base game folder when they are not present in the profile; a mod's own versions take precedence. The `nevada` profile recognizes `Nevada.cfg` if `fallout2.cfg` is absent. Other profiles require `fallout2.cfg`. Preserve any internal `mods/mods_order.txt` and the archives it references. This port does not execute Windows DLLs; full Sfall compatibility is not implemented.
 
-### macOS
+To activate a profile:
 
-> **NOTE**: macOS 10.11 (El Capitan) or higher is required. Runs natively on Intel-based Macs and Apple Silicon.
+1. Start Fallout 2 and open **Options** from the main menu.
+2. Select the desired profile in the **MOD PROFILES** menu and choose **ACTIVATE**.
+3. Return to the main menu and use **EXIT**.
+4. Relaunch Fallout 2 to load the selected profile.
+5. To return to the base game, activate `vanilla` and restart the same way.
 
-- Use Windows installation as a base - it contains data assets needed to play. Copy `Fallout2` folder somewhere, for example `/Applications/Fallout2`.
+If a mod fails to start, the port attempts to recover to vanilla on the next launch. With the game closed, you can also remove `mod-profile.txt` from `sd:/3ds/fallout2/` to reset selection. Back up your saves first; do not delete mod folders or saves as a troubleshooting step.
 
-- Alternatively you can use Fallout 2 from Macplay/The Omni Group as a base - you need to extract game assets from the original bundle. Mount CD/DMG, right click `Fallout 2` -> `Show Package Contents`, navigate to `Contents/Resources`. Copy `GameData` folder somewhere, for example `/Applications/Fallout2`.
+### Compatibility
 
-- Or if you're a Terminal user and have Homebrew installed you can extract the needed files from the GoG installer:
+| Game/mod | Status |
+| --- | --- |
+| Vanilla Fallout 2 | Tested on Old 3DS during development |
+| Unofficial Patch Updated (UPU) | Initial hardware testing; not fully validated |
+| Fallout: Nevada Extended 2.0.3.4 | Initial gameplay, combat, dialogue and save/load testing; no full playthrough |
+| Restoration Project, Fallout Et Tu, Olympus 2207 | Not supported/validated by this fork |
+| Sonora, Resurrection, Yesterday and other mods | Not tested by this fork |
 
-```console
-$ brew install innoextract
-$ innoextract ~/Downloads/setup_fallout2_2.1.0.18.exe -I app
-$ mv app /Applications/Fallout2
+Some Sfall features, including script hook registration/dispatch, are not implemented. Mod startup, save compatibility, interface restoration and long-term stability still require additional testing. Do not assume that a mod running on desktop Community Edition will work on 3DS.
+
+## Build from source (CIA and 3DSX)
+
+The 3DS target uses `Makefile.ctr`. These steps describe the development setup; a fresh build from the cleaned release checkout has not yet been independently verified.
+
+### Requirements
+
+- [devkitPro](https://devkitpro.org/) with the Nintendo 3DS development environment (devkitARM, libctru, citro2d, citro3d and the standard 3DS tools, including `tex3ds`).
+- SDL2 and zlib portlibs for 3DS.
+- `makerom` and `bannertool` for CIA packaging and banner/icon creation. On Windows, make sure `makerom.exe` and `bannertool.exe` are on your PATH. On Linux, the Makefile expects them in `$DEVKITPRO/tools/bin` by default (or the configured `TOOLDIR`).
+- Git and GNU Make. On Windows, use the devkitPro MSYS2 shell, not plain Command Prompt.
+
+In the devkitPro MSYS2 shell, install missing packages using the devkitPro package manager:
+
+```sh
+pacman -S --needed 3ds-dev 3ds-sdl2 3ds-zlib
 ```
 
-- Download and copy `fallout2-ce.app` to this folder.
+On Linux, use `dkp-pacman` instead of `pacman` if that is how your devkitPro installation exposes its package manager. Install `makerom` and `bannertool` separately if they are not already available.
 
-- Run `fallout2-ce.app`.
+### Compile
 
-### Android
-
-> **NOTE**: Fallout 2 was designed with mouse in mind. There are many controls that require precise cursor positioning, which is not possible with fingers. Current control scheme resembles trackpad usage:
-- One finger moves mouse cursor around.
-- Tap one finger for left mouse click.
-- Tap two fingers for right mouse click (switches mouse cursor mode).
-- Move two fingers to scroll current view (map view, worldmap view, inventory scrollers).
-
-> **NOTE**: From Android standpoint release and debug builds are different apps. Both apps require their own copy of game assets and have their own savegames. This is intentional. As a gamer just stick with release version and check for updates.
-
-- Use Windows installation as a base - it contains data assets needed to play. Copy `Fallout2` folder to your device, for example to `Downloads`. You need `master.dat`, `critter.dat`, `patch000.dat`, and `data` folder. Watch for file names - keep (or make) them lowercased (see [Configuration](#configuration)).
-
-- Download `fallout2-ce.apk` and copy it to your device. Open it with file explorer, follow instructions (install from unknown source).
-
-- When you run the game for the first time it will immediately present file picker. Select the folder from the first step. Wait until this data is copied. A loading dialog will appear, just wait for about 30 seconds. If you're installing total conversion mod or localized version with a large number of unpacked resources in `data` folder it can take up to 20 minutes. Once copied, the game will start automatically.
-
-### iOS
-
-> **NOTE**: See Android note on controls.
-
-- Download `fallout2-ce.ipa`. Use sideloading applications ([AltStore](https://altstore.io/) or [Sideloadly](https://sideloadly.io/)) to install it to your device. Alternatively you can always build from source with your own signing certificate.
-
-- Run the game once. You'll see error message saying "Couldn't find/load text fonts". This step is needed for iOS to expose the game via File Sharing feature.
-
-- Use Finder (macOS Catalina and later) or iTunes (Windows and macOS Mojave or earlier) to copy `master.dat`, `critter.dat`, `patch000.dat`, and `data` folder to "Fallout 2" app ([how-to](https://support.apple.com/HT210598)). Watch for file names - keep (or make) them lowercased (see [Configuration](#configuration)).
-
-## Configuration
-
-The main configuration file is `fallout2.cfg`. There are several important settings you might need to adjust for your installation. Depending on your Fallout distribution main game assets `master.dat`, `critter.dat`, `patch000.dat`, and `data` folder might be either all lowercased, or all uppercased. You can either update `master_dat`, `critter_dat`, `master_patches` and `critter_patches` settings to match your file names, or rename files to match entries in your `fallout2.cfg`.
-
-The `sound` folder (with `music` folder inside) might be located either in `data` folder, or be in the Fallout folder. Update `music_path1` setting to match your hierarchy, usually it's `data/sound/music/` or `sound/music/`. Make sure it matches your path exactly (so it might be `SOUND/MUSIC/` if you've installed Fallout from CD). Music files themselves (with `ACM` extension) should be all uppercased, regardless of `sound` and `music` folders.
-
-The second configuration file is `f2_res.ini`. Use it to change game window size and enable/disable fullscreen mode.
-
-```ini
-[MAIN]
-SCR_WIDTH=1280
-SCR_HEIGHT=720
-WINDOWED=1
+```sh
+git clone --branch mod-support https://github.com/Nookitlicious/fallout2-ce-3ds.git
+cd fallout2-ce-3ds
+export PATH="$DEVKITARM/bin:$DEVKITPRO/tools/bin:$PATH"
+make -f Makefile.ctr clean
+make -f Makefile.ctr
 ```
 
-Recommendations:
-- **Desktops**: Use any size you see fit.
-- **Tablets**: Set these values to logical resolution of your device, for example iPad Pro 11 is 1668x2388 (pixels), but it's logical resolution is 834x1194 (points).
-- **Mobile phones**: Set height to 480, calculate width according to your device screen (aspect) ratio, for example Samsung S21 is 20:9 device, so the width should be 480 * 20 / 9 = 1067.
+For an exact release-source build, check out the corresponding release tag once its source reference has been verified. The expected build outputs are `fallout2-ce.cia`, `fallout2-ce.3dsx`, and `fallout2-ce.elf` (the latter is useful for crash diagnosis). The Makefile generates the RomFS texture from `os/ctr/gfx/frame_tex.t3s` and its PNG source using `tex3ds`; compiled outputs are not needed in source control. Install the compiled CIA or 3DSX and place your original game files on the SD card as described above. Keep your commercial game files outside the source checkout: the clean target deletes generated `romfs/` contents.
 
-In time this stuff will receive in-game interface, right now you have to do it manually.
+## Reporting bugs and contributing
 
-The third configuration file is `ddraw.ini` (part of Sfall). There are dozens of options that adjust or override engine behaviour and gameplay mechanics. This file is intended for modders and advanced users. Currently only a small subset of these settings are actually implemented.
+Please report reproducible issues in this fork's [issue tracker](https://github.com/Nookitlicious/fallout2-ce-3ds/issues). Include the console model, build version, active mod and version, reproduction steps, and any relevant crash dump or `mod-startup.log`. Do not upload copyrighted game archives or private save files publicly. Comparisons against the original 3DS port are particularly useful. The `tests/o3ds_host/` directory contains development regression-test scripts; host tests do not substitute for hardware testing.
 
-## Contributing
+## Credits and AI-assisted development
 
-Integrating Sfall goodies is the top priority. Quality of life updates are OK too. Please no large scale refactorings at this time as we need to reconcile changes from Reference Edition, which will make this process slow and error-prone. In any case open up an issue with your suggestion or to notify other people that something is being worked on.
+- [Alexander Batalov and Fallout 2 Community Edition contributors](https://github.com/alexbatalov/fallout2-ce) — original Community Edition engine.
+- [MrHuu](https://github.com/MrHuu/fallout2-ce-3ds) — original Nintendo 3DS port and its platform-specific foundation.
+- [Sfall contributors](https://github.com/sfall-team/sfall) — Sfall features and scripting API; this fork implements only a subset.
+- The Unofficial Patch Updated and Fallout: Nevada development teams — their respective mods.
+- Black Isle Studios and Interplay — the original Fallout 2 game.
+- Nookitlicious — enhanced fork maintainer, build compilation, hardware testing, bug reproduction and release management.
 
-### Intergrating Sfall
+### AI-Assisted Development
 
-There are literally hundreds if not thousands of fixes and features in sfall. I guess not all of them are needed in Community Edition, but for the sake of compatibility with big mods out there, let's integrate them all.
+This project was developed through a combination of manual code modifications and AI-assisted programming using OpenAI language models.
+The project maintainer actively contributed to source code editing, touchscreen mapping, interface adjustments, feature development, debugging, compilation, and extensive testing on physical Old Nintendo 3DS hardware.
+AI tools were used to assist with code implementation, troubleshooting, performance optimization, and experimental mod compatibility.
+This project builds upon Fallout 2 Community Edition and MrHuu's original Nintendo 3DS port.
 
-## License
+## Upstream documentation and license
 
-The source code is this repository is available under the [Sustainable Use License](LICENSE.md).
+For the original project's Windows, Linux, macOS, Android and iOS instructions and general configuration information, see the [upstream Community Edition README](https://github.com/alexbatalov/fallout2-ce). Those platforms are not the focus of this fork's 3DS beta.
+
+The source code is available under the [Sustainable Use License](LICENSE.md), with existing third-party notices and licenses retained. Original Fallout 2 game assets and separately distributed mods remain subject to their respective rights and licenses.
