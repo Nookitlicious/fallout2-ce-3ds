@@ -123,7 +123,7 @@ Some Sfall features, including script hook registration/dispatch, are not implem
 
 ## Build from source (CIA and 3DSX)
 
-The 3DS target uses `Makefile.ctr`. These steps describe the development setup; a fresh build from the cleaned release checkout has not yet been independently verified.
+The 3DS target uses `Makefile.ctr`. A clean build was successfully completed using devkitPro on Windows, producing working CIA, 3DSX and ELF build outputs. Hardware validation of the newly compiled binaries is pending.
 
 ### Requirements
 
