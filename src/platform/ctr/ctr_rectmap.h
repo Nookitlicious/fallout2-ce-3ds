@@ -60,6 +60,8 @@ typedef enum {
     DISPLAY_WORLDMAP_TOP,
     DISPLAY_CHAR_OPTIONS,
     DISPLAY_CHAR_FILE,
+    DISPLAY_DIALOG_REVIEW,
+    DISPLAY_TOWN_ENTRANCES,
     DISPLAY_LAST
 } rectMap_e;
 
@@ -105,6 +107,11 @@ private:
     rectMap_e previous_;
     bool enabled_;
 };
+
+// 3DS-only world map navigation events (outside the keyboard range).
+constexpr int kCtrWorldMapEnterOrToggleEntrances = 2070;
+constexpr int kCtrWorldMapFocusUp = 2073;
+constexpr int kCtrWorldMapFocusDown = 2074;
 
 // World-map window coordinates are relative to the 640x480 game framebuffer.
 void setWorldMapOrigin(int x, int y);

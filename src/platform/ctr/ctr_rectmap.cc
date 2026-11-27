@@ -307,19 +307,22 @@ void setWorldMapOrigin(int x, int y)
     auto* top = rectMaps[DISPLAY_WORLDMAP_TOP][0];
     top->src_x = x + 22;
     top->src_y = y + 21;
+    const int panelY[] = {130, 0, 320};
     for (int i = 0; i < numRectsInMap[DISPLAY_WORLDMAP]; ++i) {
         auto* r = rectMaps[DISPLAY_WORLDMAP][i];
         r->src_x = x + 472;
-        r->src_y = y + (i == 0 ? 0 : 320);
+        r->src_y = y + panelY[i];
     }
 }
 
 void worldMapTouchToTexture(int x, int y, int* outX, int* outY)
 {
-    const auto* first = rectMaps[DISPLAY_WORLDMAP][0];
+    const auto* viewport = rectMaps[DISPLAY_WORLDMAP_TOP][0];
+    const int originX = static_cast<int>(viewport->src_x) - 22;
+    const int originY = static_cast<int>(viewport->src_y) - 21;
     // Inert border, outside the map viewport and every control button.
-    *outX = static_cast<int>(first->src_x) + 3;
-    *outY = static_cast<int>(first->src_y) + 470;
+    *outX = originX + 475;
+    *outY = originY + 470;
     if (worldMapSwapped) {
         const auto r = worldMapViewportRect();
         const float top = 240 - r.dst_y - r.dst_h;
@@ -336,6 +339,22 @@ void worldMapTouchToTexture(int x, int y, int* outX, int* outY)
             && y >= top && y < top + r->dst_h) {
             *outX = static_cast<int>(r->src_x + (x - r->dst_x) * r->src_w / r->dst_w);
             *outY = static_cast<int>(r->src_y + (y - top) * r->src_h / r->dst_h);
+            const int localX = *outX - originX;
+            const int localY = *outY - originY;
+            // Snap the entire visible name/plate (including its border) to
+            // the existing transparent name button. Empty rows stay inert.
+            if (i == 0 && localX >= 501 && localY >= 135 && localY < 313) {
+                const int row = (localY - 135) / 27;
+                *outX = originX + 550;
+                *outY = originY + std::min(145 + row * 27, 307);
+            } else if (i == 0 && localX < 501 && localY >= 130 && localY < 167) {
+                // Expand the two little scroll arrows without overlapping names.
+                *outX = originX + 484;
+                *outY = originY + (localY < 151 ? 141 : 156);
+            } else if (i == 2 && localX >= 500 && localX < 625 && localY >= 420 && localY < 464) {
+                *outX = originX + 550;
+                *outY = originY + 442;
+            }
             return;
         }
     }
@@ -376,6 +395,13 @@ void ctr_rectmap_init()
     addRectMap(DISPLAY_DIALOG,            5, 565, 305,  70,  18, 125,  52,  70,  18); // bottom barter text
     addRectMap(DISPLAY_DIALOG,            6, 565, 360,  70,  35, 200,  44,  70,  35); // bottom about text
 
+    // Review buttons are independent of the normal dialogue options window.
+    addRectMap(DISPLAY_DIALOG_REVIEW, 0, 475, 152, 35, 35, 32, 130, 100, 100);
+    addRectMap(DISPLAY_DIALOG_REVIEW, 1, 475, 191, 35, 37, 188, 130, 100, 100);
+    addRectMap(DISPLAY_DIALOG_REVIEW, 2, 499, 398, 82, 46, 78, 18, 164, 92);
+    // Town entrance list is an engine window occupying the right-hand panel.
+    addRectMap(DISPLAY_TOWN_ENTRANCES, 0, 472, 0, 168, 480, 0, 0, 320, 240);
+
     addRectMap(DISPLAY_SKILLDEX,          0, 465,  50, 165, 140,  10,  50, 150, 140);
     addRectMap(DISPLAY_SKILLDEX,          1, 465, 195, 165, 140, 160,  50, 150, 140);
     addRectMap(DISPLAY_SKILLDEX,          2, 497,  14, 90,   29, 105, 195, 110,  35); // skilldex
@@ -392,10 +418,12 @@ void ctr_rectmap_init()
     addRectMap(DISPLAY_INVENTORY_TRADE,   4, 560, 290,  80, 140, 260,   0,  60,  80); // during barter
 
     // Original Fallout 2 world-map viewport and right-side control panel.
-    // Preserve the map's aspect ratio and split the tall panel into two columns.
+    // Keep the map aspect ratio; dedicate the entire left touchscreen column
+    // to the seven city tabs. Date/dial and Town/World share the right column.
     addRectMap(DISPLAY_WORLDMAP_TOP, 0, 22, 21, 450, 443, 78, 0, 244, 240);
-    addRectMap(DISPLAY_WORLDMAP, 0, 472, 0, 168, 320, 8, 0, 126, 240);
-    addRectMap(DISPLAY_WORLDMAP, 1, 472, 320, 168, 160, 144, 40, 168, 160);
+    addRectMap(DISPLAY_WORLDMAP, 0, 472, 130, 168, 190, 0, 0, 184, 240);
+    addRectMap(DISPLAY_WORLDMAP, 1, 472, 0, 168, 135, 188, 125, 132, 115);
+    addRectMap(DISPLAY_WORLDMAP, 2, 472, 320, 168, 160, 188, 0, 132, 121);
     addRectMap(DISPLAY_PIPBOY,            0,   0, 330, 254, 150,   0,   0, 320, 190);
     addRectMap(DISPLAY_PIPBOY,            1,   0,   0, 254,  40,   0, 190, 320,  50);
     addRectMap(DISPLAY_AUTOMAP, 0, 60, 0, 519, 480, 30, 0, 260, 240);

@@ -8,6 +8,7 @@
 
 #ifdef __3DS__
 #include "3ds.h"
+#include "platform/ctr/ctr_mod_profiles.h"
 
 struct LightLockGuard {
     LightLock* lock;
@@ -165,8 +166,14 @@ bool audioEngineInit()
 void audioEngineExit()
 {
     if (audioEngineIsInitialized()) {
+#ifdef __3DS__
+        ctrModProfileStage("Alpha12: SDL audio close begins");
+#endif
         SDL_CloseAudioDevice(gAudioEngineDeviceId);
         gAudioEngineDeviceId = 0;
+#ifdef __3DS__
+        ctrModProfileStage("Alpha12: SDL audio close complete");
+#endif
     }
 }
 

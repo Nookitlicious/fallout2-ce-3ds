@@ -1,16 +1,39 @@
 # Fallout 2 Community Edition — 3DS Enhanced
 
-An unofficial enhanced fork of [MrHuu's Nintendo 3DS port](https://github.com/MrHuu/fallout2-ce-3ds) of [Fallout 2 Community Edition](https://github.com/alexbatalov/fallout2-ce). This fork focuses on Old Nintendo 3DS performance, dual-screen layouts, touch controls and experimental mod compatibility while retaining the original Fallout 2 gameplay.
+An unofficial enhanced fork of [MrHuu's Nintendo 3DS port](https://github.com/MrHuu/fallout2-ce-3ds) of [Fallout 2 Community Edition](https://github.com/alexbatalov/fallout2-ce). Focused on Old Nintendo 3DS performance, dual-screen layouts, touch controls and experimental mod compatibility while retaining original Fallout 2 gameplay.
 
+<<<<<<< Updated upstream
 **Version:** v1.1.1 Beta — [Release downloads (CIA and 3DSX)](https://github.com/Nookitlicious/fallout2-ce-3ds/releases).
+=======
+**Latest beta: v2.0 Beta 1** — based on Alpha 17. [Release downloads (CIA and 3DSX)](https://github.com/Nookitlicious/fallout2-ce-3ds/releases).
 
-Previous version: [v1.1 Beta](https://github.com/Nookitlicious/fallout2-ce-3ds/releases/tag/v1.1_beta).
+Previous release: [v1.1.1 Beta](https://github.com/Nookitlicious/fallout2-ce-3ds/releases). Back up your saves before updating or trying mods. A legally obtained copy of Fallout 2 is required; original game data is not included.
+>>>>>>> Stashed changes
 
+## Screenshots
+
+<<<<<<< Updated upstream
 > This is a beta, primarily tested on Old 3DS hardware. Back up your saves before updating or trying mods. A legally obtained copy of Fallout 2 is required; original game data is not included.
+=======
+Original screenshots from the current development build (no generated artwork). The top and bottom screens are shown side by side for each interface.
+>>>>>>> Stashed changes
 
-## Preview
+**Mod profile manager**
 
-Photos from earlier development builds running on actual 3DS hardware. Final beta layouts may differ.
+<p>
+  <img src="docs/screenshots/v2-mod-profiles-top.png" alt="Mod profile information, top screen" width="400">
+  <img src="docs/screenshots/v2-mod-profiles-bottom.png" alt="Mod profile selection, bottom screen" width="320">
+</p>
+
+**Town entrance selection**
+
+<p>
+  <img src="docs/screenshots/v2-town-entrances-top.png" alt="Town map with entrance markers, top screen" width="400">
+  <img src="docs/screenshots/v2-town-entrances-bottom.png" alt="Town entrance selection, bottom screen" width="320">
+</p>
+
+<details>
+<summary>Earlier hardware screenshots</summary>
 
 <p>
   <img src="docs/screenshots/main-menu.jpg" alt="Main menu on Nintendo 3DS" width="240">
@@ -18,58 +41,61 @@ Photos from earlier development builds running on actual 3DS hardware. Final bet
   <img src="docs/screenshots/character-screen.jpg" alt="Character screen on Nintendo 3DS" width="240">
 </p>
 
+<<<<<<< Updated upstream
 ## What's new in v1.1.1 Beta
+=======
+</details>
 
-This maintenance update focuses on world map navigation, character creation and zone transitions while retaining the performance improvements and experimental mod support from v1.1.
+## What's new in v2.0 Beta 1
 
-### World map
+This release consolidates the v1.1 improvements and the v1.2 Alpha 1–17 development cycle. Alpha 17 is the tested gameplay baseline; this beta packages that baseline with updated release documentation.
+>>>>>>> Stashed changes
 
-- Dedicated dual-screen layout with the map on the top screen and destination controls on the touchscreen by default.
-- Press **SELECT** to swap the map and control panel between screens. With the map on the bottom screen, destinations can be selected directly by touch. Press SELECT again to switch back.
-- Use the D-pad to pan the world map, the Circle Pad to move the cursor, and A or R to select.
-- Added a fallback for location labels that display "Error": the game uses the configured area name from `city.txt` when a localized name is unavailable in `map.msg`.
-- Added gameplay layout restoration when leaving the world map or entering encounters.
+### Dual-screen interface and controls
 
-### Character creation
+- Full-width main-menu power armor artwork with dedicated bottom-screen menu buttons.
+- Original Fallout-style metal menus, red indicator lights and larger readable buttons for mod profiles and town entrances.
+- Improved dialogue layout, reply text clipping, touch response selection and dialogue review controls.
+- Adapted inventory, item use, looting, barter, Skilldex, character creation, perks and Automap layouts.
+- Improved character Options and character save/load dialogs; D-pad scrolling and B to dismiss dialogs.
+- Dedicated Pip-Boy controls and content layout, automatic cursor placement, Circle Pad/D-pad navigation and touch controls.
+- Improved save/load panels, status messages, software keyboard input, character names and save descriptions.
+- Interface restoration improvements after movies, map transitions and encounters.
 
-- Dedicated touchscreen layout for the Options popup to address clipping.
-- Added D-pad scrolling alongside Circle Pad scrolling on the character screen.
-- Press **B** to close the Options popup or character file dialog.
-- Improved character save/load dialog layout and restoration of the character screen.
+### World and town maps
 
-### Zone loading
+- Enlarged destination list with readable names and larger touch targets.
+- Dedicated top-screen map and bottom-screen destination controls; SELECT swaps the displays.
+- D-pad now pans the world map in all four directions, with continuous scrolling when held. It no longer navigates the destination list in the world map view.
+- Circle Pad moves the cursor across the map and controls; touch selects destinations. A/R selects, X enters a known location or toggles town entrances, and Y switches Town/World views.
+- Free exploration of unknown areas, more reliable selection of nearby known locations and manual entry rather than automatic entry on approach.
+- Dedicated town entrance menu with selectable entrance names, corresponding map markers and a return-to-map button.
+- Fallback to configured city names when localized labels are missing.
 
-- Added a native "LOADING AREA..." / "Please wait..." display during area loading, independent of the game's palette fades and without an intentional loading delay.
+### Old 3DS performance and stability
+
+- Rendering, artwork caching, map loading, saving/loading and memory-management optimizations developed for Old 3DS.
+- Reduced unnecessary processing, artwork/heap safety checks and improved GPU and shutdown cleanup.
+- Map-transition graphical corruption fixes; the earlier loading overlay was removed.
+- Optional gameplay, loading, menu and rendering profiling tools for diagnosing performance regressions.
+- Improvements to party handling, lighting and mod startup diagnostics; full regression coverage remains incomplete.
+
+### Experimental mod support
+
+- Built-in mod-profile selector with paginated lists, active profile indication, activation/relaunch flow and separate profile saves.
+- Shared base game archives when applicable; mod-specific archives, configuration and directory-based resource loading.
+- Vanilla recovery after incomplete mod startup and improved archive/startup diagnostics.
+- Initial compatibility with Unofficial Patch Updated, Fallout: Nevada Extended, Fallout et tu and Fallout: Sonora.
+- Et tu directory-based loading, character creation and world map fixes; native Sfall movie filename replacements for the original 17 movie slots.
+- Partial native Sfall support; Windows DLLs, complete scripting hooks, expanded movie slots, blank movie entries and subtitle compatibility are not guaranteed.
 
 ### Testing status
 
-The initial redesigned world map was confirmed working on physical Old 3DS hardware. The remaining changes, including screen swapping, area-name fallback, character dialogs and zone loading, have been implemented but still need confirmed hardware results for the final v1.1.1 build. Full playthroughs and mod regression testing are still pending. Report any issues with the console model, build format (CIA or 3DSX), and active mod profile.
-
-## Improvements introduced in v1.1 Beta
-
-### Performance and stability
-
-- Old 3DS rendering, map loading, save/loading and memory-management optimizations.
-- Reduced unnecessary processing and improved artwork caching.
-- Artwork and heap safety checks, including a fix for a reproduced Nevada gameplay crash.
-- Improved shutdown cleanup and mod startup diagnostics.
-
-### Interface and controls
-
-- Redesigned main menu with power armor artwork filling the top screen and dedicated bottom-screen menu buttons.
-- Improved dialogue text readability, clipping, and touchscreen response selection.
-- Improved inventory, character, skill selection and Automap layouts.
-- Redesigned Pip-Boy with separate content and controls, automatic cursor positioning, D-pad and Circle Pad navigation.
-- Improved touch mappings, physical navigation and message boxes.
-- Saving/loading indicators and fixes for software keyboard input, character names and save descriptions.
-- Changes intended to restore the adapted interface after movies and map transitions; additional regression testing is needed.
-
-### Experimental mods
-
-- Mod profile manager accessible from the main menu's Options screen.
-- Shared base game archives and experimental separate save profiles.
-- Initial compatibility with Unofficial Patch Updated (UPU) and Fallout: Nevada Extended.
-- Recovery to vanilla after incomplete mod startup, archive loading improvements and partial native Sfall scripting support.
+- Alpha 15/16: all 31 submitted interface, navigation, performance and stability checks passed.
+- Alpha 17: maintainer reported world map control tests passed and Fallout et tu and Sonora working on physical Old 3DS hardware.
+- No new crashes, freezes or save issues reported in those checklist tests. This does not establish that all prior Old 3DS crashes are fixed.
+- Host world map layout test still fails a touch-coordinate assertion; its cause is unresolved despite successful hardware testing.
+- Full campaigns, all console variants, separate 3DSX testing and exhaustive mod compatibility remain unverified for this beta.
 
 ## Installation on Nintendo 3DS
 
@@ -77,8 +103,13 @@ You need a 3DS capable of running homebrew, an SD card and your own copy of Fall
 
 1. Install Fallout 2 on your PC and locate its game data.
 2. Create `3ds/fallout2/` at the root of your SD card. Copy `master.dat`, `critter.dat`, `patch000.dat` (if present), the `data/` directory and any separate `sound/` directory from your installed copy. Keep a backup of your original files and saves. If copying `fallout2.cfg`, use relative paths instead of PC-specific absolute paths.
+<<<<<<< Updated upstream
 3. Download the desired CIA or 3DSX from the [Releases page](https://github.com/Nookitlicious/fallout2-ce-3ds/releases). Choose v1.1.1 Beta when available, or v1.1 Beta if you need the previous build.
 4. For CIA, copy it to your SD card and install using FBI on a compatible homebrew-enabled system. Launch from the HOME Menu. For 3DSX, copy `fallout2-ce.3dsx` into `3ds/fallout2/` and launch it through the Homebrew Launcher.
+=======
+3. Download the desired CIA or 3DSX from the [Releases page](https://github.com/Nookitlicious/fallout2-ce-3ds/releases). Choose v2.0 Beta 1 for the latest beta and experimental mod support.
+4. For CIA, copy it to your SD card and install using FBI on a compatible homebrew-enabled system. Launch from the HOME Menu. For 3DSX, copy the downloaded 3DSX (rename it to `fallout2-ce.3dsx`) into `3ds/fallout2/` and launch it through the Homebrew Launcher.
+>>>>>>> Stashed changes
 
 Example SD card layout (`sd:/` means the root of the SD card):
 
@@ -126,7 +157,39 @@ sd:/3ds/fallout2/
         └── MODS/             # preserve installed mod resources
 ```
 
+<<<<<<< Updated upstream
 The tree is illustrative, not a complete mod manifest. Keep the mod's other configuration files, archives and resources as supplied. The profile manager can use `master.dat` and `critter.dat` from the base game folder when they are not present in the profile; a mod's own versions take precedence. The `nevada` profile recognizes `Nevada.cfg` if `fallout2.cfg` is absent. Other profiles require `fallout2.cfg`. Preserve any internal `mods/mods_order.txt` and the archives it references. This port does not execute Windows DLLs; full Sfall compatibility is not implemented.
+=======
+The tree is illustrative, not a complete mod manifest. Keep the mod's other configuration files, archives and resources as supplied. The profile manager can use `master.dat` and `critter.dat` from the base game folder when they are not present in the profile; a mod's own versions take precedence. The `nevada` profile recognizes `Nevada.cfg` if `fallout2.cfg` is absent. Other profiles require `fallout2.cfg`, except `sonora`, which requires its own `master.dat`, `critter.dat` and `fission.dat`. Preserve any internal `mods/mods_order.txt` and the archives it references. This port does not execute Windows DLLs; full Sfall compatibility is not implemented.
+
+### Sonora and Et Tu installation
+
+Install each mod on PC first according to its author's instructions. Keep the original Fallout 2 archives in the base SD folder.
+
+- **Sonora:** Copy `master.dat`, `critter.dat`, `fission.dat` and `data/` from the installed Sonora folder directly into `mods/sonora/`.
+- **Et Tu:** Complete the PC installation, including extracting the required original Fallout 1 assets with UNDAT as directed by the mod author. Copy `Fallout2.cfg`, `ddraw.ini`, `sfall.dat`, `ce.dat`, `f2_res.dat`, `f2_res.ini`, `data/`, `mods/`, `Appearance/` and `config/` from the installed Fallout1in2 folder into `mods/ettu/`. Keep the internal mod order file and resources. Base Fallout 2 archives can be shared from the parent game folder. Use relative archive paths (`master.dat`, `critter.dat`) in the profile configuration.
+- Windows executables and DLLs shown in the examples are not required by the 3DS engine. Do not distribute commercial game assets.
+
+### Example mod folders on SD card
+
+These screenshots show example installed folders, not exhaustive requirements. Drive letters vary by PC.
+
+**Sonora**
+
+![Sonora folder](docs/screenshots/mod-sonora.png)
+
+**Nevada**
+
+![Nevada folder](docs/screenshots/mod-nevada.png)
+
+**Et Tu**
+
+![Et Tu folder](docs/screenshots/mod-ettu.png)
+
+**Unofficial Patch Updated**
+
+![Unofficial Patch Updated folder](docs/screenshots/mod-upu.png)
+>>>>>>> Stashed changes
 
 To activate a profile:
 
@@ -140,6 +203,7 @@ If a mod fails to start, the port attempts to recover to vanilla on the next lau
 
 ### Compatibility
 
+<<<<<<< Updated upstream
 The results below are from earlier development and v1.1 testing; full compatibility has not been established for v1.1.1. Untested means compatibility is unknown, not that the mod is incompatible.
 
 | Game/mod | Status |
@@ -151,12 +215,28 @@ The results below are from earlier development and v1.1 testing; full compatibil
 | Fallout et tu (Fallout 1 in 2) | Not tested on this fork; compatibility unknown |
 | Olympus 2207 | Not tested on this fork; compatibility unknown |
 | Sonora, Resurrection, Yesterday and other mods | Not tested by this fork |
+=======
+These are maintainer-reported hardware results, not full-campaign certifications.
+
+| Game/mod | Status |
+| --- | --- |
+| Vanilla Fallout 2 | Alpha 15/16 checks passed |
+| Unofficial Patch Updated (UPU) | Alpha 15/16 launch checks passed |
+| Fallout: Nevada Extended 2.0.3.4 | Initial gameplay tested in earlier builds; current full regression pending |
+| Fallout et tu (Fallout 1 in 2) | Working on Old 3DS in Alpha 17 testing |
+| Fallout: Sonora | Working on Old 3DS in Alpha 17 testing |
+| Restoration Project, Olympus 2207, Resurrection, Yesterday | Compatibility unverified |
+>>>>>>> Stashed changes
 
 Some Sfall features, including script hook registration/dispatch, are not implemented. Mod startup, save compatibility, interface restoration and long-term stability still require additional testing. Do not assume that a mod running on desktop Community Edition will work on 3DS.
 
 ## Build from source (CIA and 3DSX)
 
+<<<<<<< Updated upstream
 The 3DS target uses `Makefile.ctr`. A clean build of v1.1 Beta was successfully completed using devkitPro on Windows, producing CIA, 3DSX and ELF files. The maintainer confirmed that a freshly compiled v1.1 build worked on hardware. Clean compilation and hardware validation of the final v1.1.1 release build are still pending.
+=======
+The 3DS target uses `Makefile.ctr`. Alpha 17 was compiled and tested by the maintainer. The v2.0 Beta 1 packaging update changes the CIA version metadata and documentation only; a fresh beta build still needs to be compiled and checked.
+>>>>>>> Stashed changes
 
 ### Requirements
 
@@ -176,14 +256,18 @@ On Linux, use `dkp-pacman` instead of `pacman` if that is how your devkitPro ins
 ### Compile
 
 ```sh
-git clone --branch mod-support https://github.com/Nookitlicious/fallout2-ce-3ds.git
+git clone https://github.com/Nookitlicious/fallout2-ce-3ds.git
 cd fallout2-ce-3ds
 export PATH="$DEVKITARM/bin:$DEVKITPRO/tools/bin:$PATH"
 make -f Makefile.ctr clean
 make -f Makefile.ctr
 ```
 
+<<<<<<< Updated upstream
 For an exact release-source build, check out the desired release tag before compiling (`git checkout v1.1.1_beta` once that tag is published, or `git checkout v1.1_beta` for the previous release). The expected build outputs are `fallout2-ce.cia`, `fallout2-ce.3dsx`, and `fallout2-ce.elf` (the latter is useful for crash diagnosis). The Makefile generates the RomFS texture from `os/ctr/gfx/frame_tex.t3s` and its PNG source using `tex3ds`; compiled outputs are not needed in source control. Install the compiled CIA or 3DSX and place your original game files on the SD card as described above. Keep your commercial game files outside the source checkout: the clean target deletes generated `romfs/` contents.
+=======
+For an exact release-source build, check out the release tag before compiling (planned tag: `v2.0-beta1`). The expected build outputs are `fallout2-ce.cia`, `fallout2-ce.3dsx`, and `fallout2-ce.elf` (the latter is useful for crash diagnosis). The Makefile generates the RomFS texture from `os/ctr/gfx/frame_tex.t3s` and its PNG source using `tex3ds`; compiled outputs are not needed in source control. Install the compiled CIA or 3DSX and place your original game files on the SD card as described above. Keep your commercial game files outside the source checkout: the clean target deletes generated `romfs/` contents.
+>>>>>>> Stashed changes
 
 ## Reporting bugs and contributing
 

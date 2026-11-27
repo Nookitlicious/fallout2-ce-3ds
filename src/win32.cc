@@ -18,6 +18,7 @@
 
 #ifdef __3DS__
 #include "3ds.h"
+#include "audio_engine.h"
 #include "platform/ctr/ctr_mod_profiles.h"
 #include "platform/ctr/ctr_gfx.h"
 #include "platform/ctr/ctr_rectmap.h"
@@ -32,6 +33,28 @@ namespace fallout {
 
 // 0x51E444
 bool gProgramIsActive = false;
+
+#ifdef __3DS__
+// Also used by atexit when the engine exits without returning to main.
+static void ctrShutdownRuntime()
+{
+    static bool shutdownStarted = false;
+    if (shutdownStarted) {
+        return;
+    }
+    shutdownStarted = true;
+
+    ctrModProfileStage("Alpha12: runtime cleanup begins");
+    audioEngineExit();
+    ctrModProfileStage("Alpha12: renderer cleanup begins");
+    ctr_gfx_exit();
+    ctr_rectmap_exit();
+    directDrawFree();
+    ctrModProfileStage("SDL shutdown begins");
+    SDL_Quit();
+    ctrModProfileStage("SDL shutdown complete; runtime shutdown follows");
+}
+#endif
 
 #ifdef _WIN32
 HANDLE GNW95_mutex = nullptr;
@@ -73,6 +96,12 @@ int main(int argc, char* argv[])
     osSetSpeedupEnable(true);
 chdir("sdmc:/3ds/fallout2/");
     ctrModProfileStartup();
+    // Register before engine handlers, so those handlers run first on exit.
+    if (atexit(ctrShutdownRuntime) != 0) {
+        ctrModProfileStage("Alpha12: failed to register runtime cleanup");
+        return EXIT_FAILURE;
+    }
+    ctrModProfileStage("Alpha12: runtime cleanup registered");
 
 // Prevent crashes when launched without arguments.
 if (argc <= 0 || argv == nullptr || argv[0] == nullptr) {
@@ -94,13 +123,8 @@ if (argc <= 0 || argv == nullptr || argv[0] == nullptr) {
     gProgramIsActive = true;
     rc = falloutMain(argc, argv);
 #ifdef __3DS__
-    ctrModProfileStage("falloutMain returned; explicit renderer shutdown begins");
-    ctr_gfx_exit();
-    ctr_rectmap_exit();
-    directDrawFree();
-    ctrModProfileStage("SDL shutdown begins");
-    SDL_Quit();
-    ctrModProfileStage("SDL shutdown complete; runtime shutdown follows");
+    ctrModProfileStage("falloutMain returned; explicit runtime shutdown begins");
+    ctrShutdownRuntime();
 #endif
 
 #if _WIN32

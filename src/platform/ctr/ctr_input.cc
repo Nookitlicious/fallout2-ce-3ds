@@ -144,6 +144,15 @@ void ctr_input_get_touch(int *newX, int *newY)
                 input_touch_to_texture(DISPLAY_CHAR_EDIT_SEX,
                         ctr_input.frame.touchX, ctr_input.frame.touchY, newX, newY);
             break;
+        case DISPLAY_DIALOG_REVIEW:
+            // Inert corner outside all three review buttons.
+            *newX = 0; *newY = 0;
+            input_touch_to_texture(ctr_rectMap.active, ctr_input.frame.touchX, ctr_input.frame.touchY, newX, newY);
+            break;
+        case DISPLAY_TOWN_ENTRANCES:
+            *newX = 472 + std::clamp(ctr_input.frame.touchX, 0, 319) * 168 / 320;
+            *newY = std::clamp(ctr_input.frame.touchY, 0, 239) * 2;
+            break;
         case DISPLAY_PIPBOY:
         case DISPLAY_AUTOMAP:
         case DISPLAY_SAVE_COMMENT:
@@ -200,6 +209,7 @@ void ctr_input_process(void)
                 _game_user_wants_to_quit = 3;
                 return;
             }
+            ctrModProfileStage("Alpha12: SDL quit outside menu; exit cleanup requested");
             exit(EXIT_SUCCESS);
             break;
         }
@@ -359,6 +369,24 @@ void input_frame_buttons(int *delta_x, int *delta_y, int *buttons)
     }
 
     if (key_combi_flags == FLAG_NONE) {
+        if (ctr_rectMap.active == DISPLAY_DIALOG_REVIEW) {
+            if (KEY_PRESS(KEY_DUP)) enqueueInputEvent(KEY_ARROW_UP);
+            if (KEY_PRESS(KEY_DDOWN)) enqueueInputEvent(KEY_ARROW_DOWN);
+            if (KEY_PRESS(KEY_B)) enqueueInputEvent(KEY_ESCAPE);
+            oldpad = ctr_input.frame.kHeld;
+            return;
+        }
+        if (ctr_rectMap.active == DISPLAY_TOWN_ENTRANCES) {
+            if (KEY_PRESS(KEY_DUP)) enqueueInputEvent(KEY_ARROW_UP);
+            if (KEY_PRESS(KEY_DDOWN)) enqueueInputEvent(KEY_ARROW_DOWN);
+            if (KEY_PRESS(KEY_A)) enqueueInputEvent(KEY_RETURN);
+            if (KEY_PRESS(KEY_X)) enqueueInputEvent(kCtrWorldMapEnterOrToggleEntrances);
+            if (KEY_PRESS(KEY_B)) enqueueInputEvent(kCtrWorldMapEnterOrToggleEntrances);
+            if (KEY_PRESS(KEY_DLEFT)) enqueueInputEvent(2071);
+            if (KEY_PRESS(KEY_DRIGHT)) enqueueInputEvent(2072);
+            oldpad = ctr_input.frame.kHeld;
+            return;
+        }
         if (ctr_rectMap.active == DISPLAY_CHAR_OPTIONS || ctr_rectMap.active == DISPLAY_CHAR_FILE) {
             if (KEY_PRESS(KEY_B)) enqueueInputEvent(KEY_ESCAPE);
             if (KEY_PRESS(KEY_A)) enqueueInputEvent(ctr_rectMap.active == DISPLAY_CHAR_FILE ? 500 : KEY_RETURN);
@@ -378,12 +406,16 @@ void input_frame_buttons(int *delta_x, int *delta_y, int *buttons)
             return;
         }
         if (ctr_rectMap.active == DISPLAY_WORLDMAP) {
-            // Use the engine's world-map arrow events, never isometric mapScroll.
+            // X enters the current city, or toggles entrances in the town-map loop.
+            if (KEY_PRESS(KEY_X)) enqueueInputEvent(kCtrWorldMapEnterOrToggleEntrances);
+            // Alpha 17: D-pad always pans the world map; city list remains touch/cursor controlled.
+            // Circle Pad can reach both panels. Y is the Town/World switch.
+            if (KEY_PRESS(KEY_Y)) enqueueInputEvent(KEY_UPPERCASE_T);
             static u32 previousDirection = 0;
             static unsigned int lastPan = 0;
             const u32 direction = ctr_input.frame.kHeld & (KEY_DUP | KEY_DDOWN | KEY_DLEFT | KEY_DRIGHT);
             const unsigned int now = getTicks();
-            if (direction && (direction != previousDirection || now - lastPan >= 100)) {
+            if (direction && (direction != previousDirection || now - lastPan >= 100u)) {
                 if (direction & KEY_DUP) enqueueInputEvent(KEY_ARROW_UP);
                 if (direction & KEY_DDOWN) enqueueInputEvent(KEY_ARROW_DOWN);
                 if (direction & KEY_DLEFT) enqueueInputEvent(KEY_ARROW_LEFT);
@@ -541,21 +573,17 @@ int ctr_input_frame(void)
     input_frame_buttons(&delta_x, &delta_y, &buttons);
 
     if (ctr_rectMap.active == DISPLAY_WORLDMAP && (delta_x || delta_y)) {
-        // Circle Pad controls the top-screen cursor. After tapping the lower
-        // panel, return the cursor to the visible map on the next movement.
+        // Let the Circle Pad reach both the map and its control panel, without
+        // teleporting back to the map after a touch or D-pad selection.
         const auto* r = rectMaps[DISPLAY_WORLDMAP_TOP][0];
-        const int left = r->src_x, top = r->src_y;
-        const int right = left + static_cast<int>(r->src_w) - 1;
-        const int bottom = top + static_cast<int>(r->src_h) - 1;
+        const int originX = static_cast<int>(r->src_x) - 22;
+        const int originY = static_cast<int>(r->src_y) - 21;
         int x, y; mouseGetPosition(&x, &y);
-        if (x < left || x > right || y < top || y > bottom) {
-            mouseHideCursor();
-            _mouse_set_position((left + right) / 2, (top + bottom) / 2);
-            mouseShowCursor();
-            mouseGetPosition(&x, &y);
-        }
-        delta_x = std::clamp(x + delta_x, left, right) - x;
-        delta_y = std::clamp(y + delta_y, top, bottom) - y;
+        const int nextX = std::clamp(x + delta_x, originX + 22, originX + 639);
+        const bool onMap = nextX < originX + 472;
+        const int nextY = std::clamp(y + delta_y, originY + (onMap ? 21 : 0), originY + (onMap ? 463 : 479));
+        delta_x = nextX - x;
+        delta_y = nextY - y;
     }
     if (ctr_rectMap.active == DISPLAY_PIPBOY && (delta_x || delta_y)) {
         int x, y; mouseGetPosition(&x, &y);

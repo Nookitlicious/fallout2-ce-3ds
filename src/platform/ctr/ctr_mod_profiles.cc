@@ -22,6 +22,8 @@
 #include "window_manager.h"
 #include "ctr_rectmap.h"
 #include "ctr_input.h"
+#include "ctr_metal_menu.h"
+#include "ctr_gfx.h"
 namespace fallout {
 namespace {
 const char* root = "sdmc:/3ds/fallout2";
@@ -127,7 +129,7 @@ void ctrModProfileLoadArchives() {
         if(n[0]=='#'||n[0]==';') continue;
         if(n.size()<5 || n.size()>120 || n.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_- .")!=std::string::npos || n.find("..")!=std::string::npos) { ctrModProfileStage("Skipped unsupported archive order entry"); continue; }
         std::string ext=n.substr(n.size()-4); for(char& c:ext) if(c>='A'&&c<='Z') c+=32;
-        if(ext!=".dat") { ctrModProfileStage("Skipped non-DAT archive order entry"); continue; }
+        if(ext!=".dat") { ctrModProfileStage(("Skipped non-DAT archive order entry: " + n).c_str()); continue; }
         std::string file="mods/"+n;
         if (!regular(file)) ctrModProfileStage(("Archive listed but absent: "+file).c_str());
         else if (dbOpen(file.c_str(),0,nullptr,1)==0) { ++count; ctrModProfileStage(("Opened "+file).c_str()); }
@@ -142,6 +144,7 @@ int ctrModProfileMenu() {
     int oldFont = fontGetCurrent(), result = 0;
     auto oldMode=ctr_input.mode; ctr_input.mode=DISPLAY_MODE_ADAPT; setActiveRectMap(DISPLAY_MODS);
     colorPaletteLoad("color.pal"); paletteFadeTo(_cmap); mouseShowCursor();
+    ctr_menu::MetalMenu metalMenu;
     bool done=false, failed=false, restartRequired=false;
     ctr_input_set_menu_quit(true);
     u32 previous=ctr_input.frame.kHeld;
@@ -158,27 +161,32 @@ int ctrModProfileMenu() {
         auto label=[&](int x,int y,int width,const std::string& value,int color){ std::string text=value; while (!text.empty() && fontGetStringWidth(text.c_str())>width) text.pop_back(); windowDrawText(win,text.c_str(),width,x,y,color | 0x02000000); };
         fontSetCurrent(103);
         panel(128,8,384,224,dark);
-        label(145,18,350,"MOD PROFILES",bright);
+        metalMenu.heading(win, 140, 12, 360, 36, 360, 36, "MOD PROFILES");
         label(145,55,350,"Active: "+active,green);
         const auto& n=profiles[selected];
         label(145,88,350,"Selected: "+n,bright);
         label(145,120,350,restartRequired?"Selection saved":n=="vanilla"?"Original game":ready(n)?"Ready to try":"Missing config or DAT files",green);
-        label(145,152,350,restartRequired?"Press A or B to return":n=="vanilla"?"Original saves":"Separate profile saves",green);
+        std::string details = n=="vanilla" ? "Original saves" : "Separate profile saves";
+        if (n == "sonora" && !ready(n)) {
+            for (const char* file : {"master.dat", "critter.dat", "fission.dat"}) {
+                if (!regular(path(n)+"/"+file)) { details = std::string("Missing: ")+file; break; }
+            }
+        }
+        label(145,152,350,restartRequired?"Press A or B to return":details,green);
         label(145,184,350,restartRequired?"Then EXIT and relaunch":failed?"Selection failed":"Activate, then relaunch",green);
         fontSetCurrent(101);
-        panel(160,244,320,232,dark);
+        panel(160,240,320,240,dark);
         size_t page=(selected/4)*4;
         bool buttonsOk=true;
-        auto button=[&](int x,int y,int width,int height,int code,const std::string& text,bool highlight){
-            panel(x,y,width,height,highlight?metal:dark);
-            label(x+8,y+(height-fontGetLineHeight())/2,width-16,text,highlight?bright:green);
-            if(buttonCreate(win,x,y,width,height,-1,-1,-1,code,nullptr,nullptr,nullptr,0)<0) buttonsOk=false;
+        auto button=[&](int x,int y,int width,int height,int code,const std::string& text,bool highlight,bool lamp=true){
+            if (metalMenu.button(win,x,y,width,height,width,height,code,text.c_str(),highlight,lamp)<0) buttonsOk=false;
         };
-        for(size_t i=0;i<4 && page+i<profiles.size();++i) button(168,250+int(i)*40,304,36,2000+int(i),profiles[page+i]+(profiles[page+i]==active?"  [ACTIVE]":""),page+i==selected);
-        button(168,414,64,24,2010,"PREV",false); button(238,414,64,24,2011,"NEXT",false);
-        button(308,414,164,24,2014,"ACTIVATE",false); button(168,442,148,28,2012,"PREFS",false); button(324,442,148,28,2013,"BACK",false);
+        for(size_t i=0;i<4 && page+i<profiles.size();++i) button(164,244+int(i)*41,312,39,2000+int(i),profiles[page+i]+(profiles[page+i]==active?"  [ACTIVE]":""),page+i==selected);
+        button(164,410,72,29,2010,"PREV",false,false); button(240,410,72,29,2011,"NEXT",false,false);
+        button(316,410,160,29,2014,"ACTIVATE",false); button(164,443,154,33,2012,"PREFS",false); button(322,443,154,33,2013,"BACK",false);
         windowRefresh(win);
-        if(!buttonsOk){windowDestroy(win);break;}
+        ctr_gfx_invalidate();
+        if(!buttonsOk){windowDestroy(win);metalMenu.clear();break;}
         while(true){
             sharedFpsLimiter.mark(); int key=inputGetInput();
             u32 held=ctr_input.frame.kHeld, pressed=held & ~previous; previous=held;
@@ -199,6 +207,7 @@ int ctrModProfileMenu() {
             if(key==2014 || key==KEY_RETURN){if(n==active){done=true;break;} ctrModProfileStage(("Activation requested: "+n).c_str()); if((n=="vanilla"||ready(n))&&save(n)){ctrModProfileStage(("Selection saved; return to main menu and EXIT: "+n).c_str());restartRequired=true;}else {failed=true;ctrModProfileStage("Selection save failed");}break;}
         }
         windowDestroy(win);
+        metalMenu.clear();
     }
     ctr_input_set_menu_quit(false);
     fontSetCurrent(oldFont); mouseHideCursor(); ctr_input.mode=oldMode; setActiveRectMap(DISPLAY_MAIN); return result;

@@ -397,6 +397,15 @@ void _mouse_info()
         switch (gesture.type) {
         case kTap:
             if (gesture.numberOfTouches == 1) {
+#ifdef __3DS__
+                // A fast tap may begin and end in the same SDL poll, before
+                // touch_process_gesture moves the cursor on an active frame.
+                if (ctr_rectMap.active == DISPLAY_WORLDMAP) {
+                    mouseHideCursor();
+                    _mouse_set_position(gesture.x, gesture.y);
+                    mouseShowCursor();
+                }
+#endif
                 _mouse_simulate_input(0, 0, MOUSE_STATE_LEFT_BUTTON_DOWN);
             } else if (gesture.numberOfTouches == 2) {
                 _mouse_simulate_input(0, 0, MOUSE_STATE_RIGHT_BUTTON_DOWN);

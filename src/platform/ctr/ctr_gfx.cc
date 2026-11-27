@@ -153,7 +153,7 @@ void show_overlay(void)
     char buffer[512];
 
     if ((ctr_gfx.overlayEnable) && (ctr_gfx.overlayEnableExtra)) {
-        snprintf(fpsBuffer, sizeof(buffer), "FPS: %5.2f", ctr_sys_get_fps());
+        snprintf(fpsBuffer, sizeof(fpsBuffer), "FPS: %5.2f", ctr_sys_get_fps());
         snprintf(buffer, sizeof(buffer),
                 "%s  MEM: %3.2f MB / %3.2f MB\n\ngpu: %5.2f%%  cpu: %5.2f%%  cmdBuf:%5.2f%%\nisWide: %s\nCur mem: %6d blocks, %9u bytes\nMax mem: %6d blocks, %9u bytes\n\nLinear Heap at start: %9.2f MB\nHeap at start:           %9.2f MB\nLinear Heap current : %9.2f MB\nHeap current :           %9.2f MB",
                 fpsBuffer,get_mem_allocated() / (1024.0f * 1024.0f),get_max_allocated() / (1024.0f * 1024.0f),
@@ -168,7 +168,7 @@ void show_overlay(void)
         C2D_DrawRectSolid(10, 42, 0.9, 300, 65, C2D_Color32f(1, 0, 1, 0.5));
 		C2D_DrawRectSolid(10,114, 0.9, 300, 75, C2D_Color32f(0, 0, 1, 0.5));
     } else if (ctr_gfx.overlayEnable) {
-        snprintf(fpsBuffer, sizeof(buffer), "FPS: %5.2f", ctr_sys_get_fps());
+        snprintf(fpsBuffer, sizeof(fpsBuffer), "FPS: %5.2f", ctr_sys_get_fps());
         snprintf(buffer, sizeof(buffer),
                 "%s  MEM: %3.2f MB / %3.2f MB",
                 fpsBuffer,get_mem_allocated() / (1024.0f * 1024.0f),get_max_allocated() / (1024.0f * 1024.0f));
@@ -286,6 +286,16 @@ void drawRects()
             );
             break;
 
+        case DISPLAY_DIALOG_REVIEW:
+            // Entire history content; do not draw the reply/options overlays.
+            drawRect(88, 76, 356, 357, 0, 0, 400, 240);
+            break;
+        case DISPLAY_TOWN_ENTRANCES: {
+            const auto* r = rectMaps[DISPLAY_WORLDMAP_TOP][0];
+            drawRect(r->src_x, r->src_y, r->src_w, r->src_h,
+                r->dst_x, r->dst_y, r->dst_w, r->dst_h);
+            break;
+        }
         case DISPLAY_DIALOG:
         case DISPLAY_INVENTORY_TRADE:
             for (int i = 0; i < numRectsInMap[DISPLAY_DIALOG_TOP]; i++) {
@@ -829,6 +839,7 @@ if (is2DS == 1) {
     FILE* flag = fopen("sdmc:/3ds/fallout2/o3ds-render-compat.flag", "rb");
     forceFullUpload = flag != nullptr;
     if (flag) fclose(flag);
+    ctrModProfileStage(forceFullUpload ? "Renderer: full upload compatibility enabled" : "Renderer: incremental upload enabled");
     flag = fopen("sdmc:/3ds/fallout2/o3ds-render-profile.flag", "rb");
     profileEnabled = flag != nullptr;
     if (flag) fclose(flag);

@@ -1,5 +1,6 @@
 #include "svga.h"
 
+#include <algorithm>
 #include <limits.h>
 #include <stdio.h>
 #include <string.h>
@@ -339,6 +340,29 @@ unsigned char* directDrawGetPalette()
 void _GNW95_ShowRect(unsigned char* src, int srcPitch, int a3, int srcX, int srcY, int srcWidth, int srcHeight, int destX, int destY)
 {
 #ifdef __3DS__
+    // Clamp to both source and destination before computing any pointers.
+    // Invalid geometry must never write outside the indexed framebuffer.
+    if (!src || !gSdlSurface || !gSdlSurface->pixels || srcPitch <= 0 || a3 <= 0
+        || srcWidth <= 0 || srcHeight <= 0 || srcX < 0 || srcY < 0
+        || srcX >= srcPitch || srcY >= a3) return;
+    const int originalWidth = srcWidth, originalHeight = srcHeight;
+    srcWidth = std::min(srcWidth, srcPitch-srcX);
+    srcHeight = std::min(srcHeight, a3-srcY);
+    if (destX < 0) {
+        if (destX <= -srcWidth) return;
+        srcX -= destX; srcWidth += destX; destX = 0;
+    }
+    if (destY < 0) {
+        if (destY <= -srcHeight) return;
+        srcY -= destY; srcHeight += destY; destY = 0;
+    }
+    if (destX >= gSdlSurface->w || destY >= gSdlSurface->h) return;
+    srcWidth = std::min(srcWidth, gSdlSurface->w-destX);
+    srcHeight = std::min(srcHeight, gSdlSurface->h-destY);
+    if (srcWidth != originalWidth || srcHeight != originalHeight) {
+        static bool logged = false;
+        if (!logged) { logged = true; ctrModProfileStage("Framebuffer: clipped out-of-bounds blit"); }
+    }
     ctr_gfx_copy_rect(src + srcPitch * srcY + srcX, srcPitch,
         (unsigned char*)gSdlSurface->pixels + gSdlSurface->pitch * destY + destX,
         gSdlSurface->pitch, srcWidth, srcHeight, destY);

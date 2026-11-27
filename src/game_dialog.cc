@@ -43,6 +43,8 @@
 #include "window_manager.h"
 #ifdef __3DS__
 #include "platform/ctr/ctr_rectmap.h"
+#include "platform/ctr/ctr_gfx.h"
+#include "platform/ctr/ctr_mod_profiles.h"
 #endif
 namespace fallout {
 
@@ -1029,6 +1031,13 @@ int _gdialogExitFromScript()
     _gdDialogWentOff = true;
 #ifdef __3DS__
     setActiveRectMap(getPreviousRectMap(0));
+    // Recompose the gameplay framebuffer after removing the modal windows.
+    if (isGameplayRectMap(ctr_rectMap.main)) {
+        tileWindowRefresh();
+        windowRefreshAll(&_scr_size);
+        ctr_gfx_invalidate();
+        ctrModProfileStage("Dialogue exit: refreshed gameplay framebuffer");
+    }
 #endif
     return 0;
 }
@@ -1466,6 +1475,14 @@ int gameDialogShowReview()
 {
     ScopedGameMode gm(GameMode::kDialogReview);
 
+#ifdef __3DS__
+    // Restore the dialogue layout on both success and initialization failure.
+    struct ReviewLayoutGuard {
+        rectMap_e previous = ctr_rectMap.main;
+        ReviewLayoutGuard() { setActiveRectMap(DISPLAY_DIALOG_REVIEW); }
+        ~ReviewLayoutGuard() { setActiveRectMap(previous); ctr_gfx_invalidate(); }
+    } reviewLayout;
+#endif
     int win;
 
     if (gameDialogReviewWindowInit(&win) == -1) {
@@ -1498,11 +1515,9 @@ int gameDialogShowReview()
                 v1 = 0;
             }
         } else if (keyCode == 336) {
-            v1 += 1;
-            if (v1 <= gGameDialogReviewEntriesLength - 1) {
+            if (v1 + 1 < gGameDialogReviewEntriesLength) {
+                ++v1;
                 gameDialogReviewWindowUpdate(win, v1);
-            } else {
-                v1 = gGameDialogReviewEntriesLength - 1;
             }
         }
 
@@ -1540,13 +1555,12 @@ void gameDialogReviewWindowUpdate(int win, int origin)
     }
 
     int width = GAME_DIALOG_WINDOW_WIDTH;
+    // Restore exactly the history pane, including the speaker-name column.
+    // Copying 640 pixels from x=113 used to overwrite the following row.
     blitBufferToBuffer(
-        _reviewBackgroundFrmImage.getData() + width * entriesRect.top + entriesRect.left,
-        width,
-        entriesRect.bottom - entriesRect.top + 15,
-        width,
-        windowBuffer + width * entriesRect.top + entriesRect.left,
-        width);
+        _reviewBackgroundFrmImage.getData() + width * 76 + 88,
+        356, 357, width,
+        windowBuffer + width * 76 + 88, width);
 
     int y = 76;
     for (int index = origin; index < gGameDialogReviewEntriesLength; index++) {
@@ -1620,7 +1634,7 @@ void gameDialogReviewWindowUpdate(int win, int origin)
     entriesRect.left = 88;
     entriesRect.top = 76;
     entriesRect.bottom += 14;
-    entriesRect.right = 434;
+    entriesRect.right = 443;
     windowRefreshRect(win, &entriesRect);
 }
 
