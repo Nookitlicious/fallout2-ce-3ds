@@ -818,15 +818,17 @@ void ctr_gfx_init()
     sceneValid = false;
     submittedFrames = 0;
     ctrModProfileStage("GPU init: begin");
-    if(gspHasGpuRight())
-        gfxExit();
 
     u8 is2DS = 0;
     cfguInit();
     CFGU_GetModelNintendo2DS(&is2DS);
     APT_CheckNew3DS(&isN3DS);
 
-    gfxInitDefault();
+    // SDL owns the graphics service. Do not restart its event thread.
+    gfxSetScreenFormat(GFX_TOP, GSP_BGR8_OES);
+    gfxSetScreenFormat(GFX_BOTTOM, GSP_BGR8_OES);
+    gfxSet3D(false);
+    ctrModProfileStage("GPU init: retaining SDL graphics service");
 
 if (is2DS == 1) {
     gfxSetWide(true);
