@@ -150,7 +150,7 @@ int _GNW95_init_mode_ex(int width, int height, int bpp)
     }
 
 #ifdef __3DS__
-    if (ctrModProfileActive()) {
+    {
         char diagnostic[128];
         snprintf(diagnostic, sizeof(diagnostic), "Requested framebuffer %dx%d scale %d; enforcing 640x480", width, height, scale);
         ctrModProfileStage(diagnostic);
