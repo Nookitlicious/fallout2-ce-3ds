@@ -62,6 +62,7 @@ typedef enum {
     DISPLAY_CHAR_FILE,
     DISPLAY_DIALOG_REVIEW,
     DISPLAY_TOWN_ENTRANCES,
+    DISPLAY_CONTROLS_HELP,
     DISPLAY_LAST
 } rectMap_e;
 
@@ -84,6 +85,7 @@ void setIndicatorSlotNum(int count);
 
 void setRectMapPos(rectMap_e rectmap, float x, float y, float w, float h, bool isTop);
 
+float getRectMapScaleFactor();
 int setRectMapScaled(bool scaled_rect_top, float rawScaleFactor);
 
 // Only gameplay can opt into the manual full-frame view. Menus keep their own layouts.
@@ -112,6 +114,8 @@ private:
 constexpr int kCtrWorldMapEnterOrToggleEntrances = 2070;
 constexpr int kCtrWorldMapFocusUp = 2073;
 constexpr int kCtrWorldMapFocusDown = 2074;
+// +1..15 encodes up/down/left/right bits for one atomic pan event.
+constexpr int kCtrWorldMapPanBase = 2080;
 
 // World-map window coordinates are relative to the 640x480 game framebuffer.
 void setWorldMapOrigin(int x, int y);

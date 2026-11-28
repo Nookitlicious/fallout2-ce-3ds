@@ -847,27 +847,12 @@ int mapLoadById(int map)
     return rc;
 }
 
-#ifdef __3DS__
-// Cover blocking map reads, not script-driven dialogs or gameplay. Restore
-// ordinary rendering on both success and the common error path.
-class ScopedZoneLoading {
-public:
-    ScopedZoneLoading() { start(); }
-    ~ScopedZoneLoading() { finish(); }
-    void start() { ctr_gfx_set_zone_loading(true); renderPresent(); }
-    void finish() { ctr_gfx_set_zone_loading(false); }
-};
-#endif
-
 // 0x482B74
 static int mapLoad(File* stream)
 {
     O3dsLoadProfile profile("map_load");
     _map_save_in_game(true);
     profile.mark("save_previous_map");
-#ifdef __3DS__
-    ScopedZoneLoading zoneLoading;
-#endif
     backgroundSoundLoad("wind2", 12, 13, 16);
     isoDisable();
     _partyMemberPrepLoad();
@@ -1004,9 +989,6 @@ static int mapLoad(File* stream)
     }
 
     profile.mark("world_setup");
-#ifdef __3DS__
-    zoneLoading.finish();
-#endif
     scriptsEnable();
 
     if (gMapHeader.scriptIndex > 0) {
@@ -1044,9 +1026,6 @@ static int mapLoad(File* stream)
     error = nullptr;
 
 err:
-#ifdef __3DS__
-    zoneLoading.finish();
-#endif
 
     if (error != nullptr) {
         char message[100]; // TODO: Size is probably wrong.
@@ -1055,13 +1034,7 @@ err:
         mapNewMap();
         rc = -1;
     } else {
-#ifdef __3DS__
-        zoneLoading.start();
-#endif
         _obj_preload_art_cache(gMapHeader.flags);
-#ifdef __3DS__
-        zoneLoading.finish();
-#endif
     }
 
     profile.mark("art_preload_or_error");
@@ -1092,6 +1065,10 @@ err:
         tileWindowRefresh();
     }
 
+#ifdef __3DS__
+    // Rebuild the presentation cache after the map has been drawn.
+    ctr_gfx_invalidate();
+#endif
     profile.mark("first_tile_render");
     gameTimeScheduleUpdateEvent();
 

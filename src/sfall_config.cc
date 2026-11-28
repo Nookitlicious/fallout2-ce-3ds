@@ -42,6 +42,8 @@ bool sfallConfigInit(int argc, char** argv)
     configSetInt(&gSfallConfig, SFALL_CONFIG_MISC_KEY, SFALL_CONFIG_MAIN_MENU_OFFSET_X_KEY, 0);
     configSetInt(&gSfallConfig, SFALL_CONFIG_MISC_KEY, SFALL_CONFIG_MAIN_MENU_OFFSET_Y_KEY, 0);
     configSetInt(&gSfallConfig, SFALL_CONFIG_MISC_KEY, "O3DSCursorDivisor", 10);
+    configSetInt(&gSfallConfig, SFALL_CONFIG_MISC_KEY, "N3DSShoulderZoom", 1);
+    configSetInt(&gSfallConfig, SFALL_CONFIG_MISC_KEY, "N3DSCStickPan", 1);
 #else
     configSetInt(&gSfallConfig, SFALL_CONFIG_MISC_KEY, SFALL_CONFIG_MAIN_MENU_OFFSET_X_KEY, 0);
     configSetInt(&gSfallConfig, SFALL_CONFIG_MISC_KEY, SFALL_CONFIG_MAIN_MENU_OFFSET_Y_KEY, 0);

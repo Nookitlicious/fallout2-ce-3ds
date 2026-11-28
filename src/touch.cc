@@ -298,7 +298,7 @@ void touch_process_gesture()
             int newY = -1;
 
             ctr_input_get_touch(&newX, &newY);
-            if ((newX != -1) || (newY != -1))
+            if (ctr_rectMap.active != DISPLAY_CONTROLS_HELP && ((newX != -1) || (newY != -1)))
             {
                 mouseHideCursor();
                 _mouse_set_position(newX, newY);

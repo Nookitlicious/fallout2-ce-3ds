@@ -51,6 +51,7 @@ static uint32_t profileDrawCalls;
 static uint32_t lastSceneDraw;
 static bool sceneValid;
 static bool rendererInitialized;
+static unsigned int submittedFrames;
 static bool zoneLoading = false;
 static bool zoneLoadingPresented = false;
 static SceneSnapshot lastScene;
@@ -89,12 +90,12 @@ static bool targetTop;
 
 static C2D_TextBuf overlayTextBuf;
 
-void beginRender(bool vSync);
+bool beginRender(bool vSync);
 void drawTopRenderTarget(uint32_t clearColor);
 void drawBottomRenderTarget(uint32_t clearColor);
 void finishRender();
 
-void drawRects();
+bool drawRects();
 void drawFrameRect();
 
 static bool loadTextureFromMem(C3D_Tex* tex, C3D_TexCube* cube, const void* data, size_t size)
@@ -261,9 +262,9 @@ inline void drawRect(const float subTexX, const float subTexY, const float subTe
     _drawRect(texW, texH, subTexX, subTexY, subTexW, subTexH, newPosX, posY, newWidth, height);
 }
 
-void drawRects()
+bool drawRects()
 {
-    beginRender(false);
+    if (!beginRender(false)) return false;
     drawTopRenderTarget(0x000000);
 
     switch (ctr_rectMap.active)
@@ -376,6 +377,7 @@ void drawRects()
             drawRect(r->src_x, r->src_y, r->src_w, r->src_h, 70.25f, 0, 259.5f, 240);
             break;
         }
+        case DISPLAY_CONTROLS_HELP:
         case DISPLAY_MODS:
             drawRect(120, 0, 400, 240, 0, 0, 400, 240);
             break;
@@ -564,6 +566,7 @@ void drawRects()
 #endif
 
     finishRender();
+    return true;
 }
 
 void drawFrameRect()
@@ -598,7 +601,7 @@ void ctr_gfx_set_zone_loading(bool enabled)
 static void drawZoneLoading()
 {
     if (zoneLoadingPresented || !rendererInitialized || !overlayTextBuf) return;
-    beginRender(true);
+    if (!beginRender(true)) return;
     C2D_Prepare();
     C2D_TextBufClear(overlayTextBuf);
     C2D_Text heading, detail;
@@ -623,6 +626,7 @@ static void drawZoneLoading()
 
 void ctr_gfx_draw(SDL_Surface* gSdlSurface)
 {
+    if (!rendererInitialized) return;
     if (zoneLoading) {
         drawZoneLoading();
         return;
@@ -636,7 +640,7 @@ void ctr_gfx_draw(SDL_Surface* gSdlSurface)
         || gSdlSurface->w > renderTextureWidth || gSdlSurface->h > renderTextureHeight
         || gSdlSurface->pitch < gSdlSurface->w) {
         static bool reportedRejected = false;
-        if (!reportedRejected && ctrModProfileActive()) {
+        if (!reportedRejected) {
             reportedRejected = true;
             char message[128];
             snprintf(message, sizeof(message), "Renderer rejected surface: %dx%d pitch %d texture %dx%d", gSdlSurface ? gSdlSurface->w : 0, gSdlSurface ? gSdlSurface->h : 0, gSdlSurface ? gSdlSurface->pitch : 0, renderTextureWidth, renderTextureHeight);
@@ -646,7 +650,7 @@ void ctr_gfx_draw(SDL_Surface* gSdlSurface)
     }
 
     static bool reportedAccepted = false;
-    if (!reportedAccepted && ctrModProfileActive()) {
+    if (!reportedAccepted) {
         reportedAccepted = true;
         char message[96];
         snprintf(message, sizeof(message), "Renderer accepted surface: %dx%d pitch %d", gSdlSurface->w, gSdlSurface->h, gSdlSurface->pitch);
@@ -698,7 +702,10 @@ void ctr_gfx_draw(SDL_Surface* gSdlSurface)
         C3D_TexEnvSrc(env, C3D_Both, GPU_TEXTURE0, GPU_PRIMARY_COLOR, GPU_PRIMARY_COLOR);
         C3D_TexEnvFunc(env, C3D_Both, GPU_REPLACE);
 
-        drawRects();
+        if (!drawRects()) {
+            sceneValid = false;
+            return;
+        }
 
         lastSceneDraw = drawNow;
         if (trackScene) lastScene = scene;
@@ -732,9 +739,17 @@ void ctr_gfx_draw(SDL_Surface* gSdlSurface)
     }
 }
 
-void beginRender(bool vSync)
+bool beginRender(bool vSync)
 {
-    C3D_FrameBegin(vSync ? C3D_FRAME_SYNCDRAW : 0);
+    const bool ok = C3D_FrameBegin(vSync ? C3D_FRAME_SYNCDRAW : 0);
+    if (!ok) {
+        static bool reportedFailure = false;
+        if (!reportedFailure) {
+            reportedFailure = true;
+            ctrModProfileStage("GPU frame begin failed");
+        }
+    }
+    return ok;
 }
 
 void drawTopRenderTarget(uint32_t clearColor)
@@ -756,15 +771,30 @@ void drawBottomRenderTarget(uint32_t clearColor)
 void finishRender()
 {
     C3D_FrameEnd(0);
+    ++submittedFrames;
+    if (submittedFrames == 1 || submittedFrames == 60) {
+        char message[128];
+        snprintf(message, sizeof(message), "GPU submitted frame %u; vblank top=%lu bottom=%lu; GPU right=%d",
+            submittedFrames, (unsigned long)C3D_FrameCounter(0),
+            (unsigned long)C3D_FrameCounter(1), (int)gspHasGpuRight());
+        ctrModProfileStage(message);
+    }
 }
 
 void initTransferTexture()
 {
     renderTextureData = (uint8_t *)linearAlloc(renderTextureByteCount);
 
+    if (!renderTextureData) {
+        ctrModProfileStage("GPU init failed: linear texture buffer allocation");
+        exit(EXIT_FAILURE);
+    }
     memset(renderTextureData, 0, renderTextureByteCount);
 
-    C3D_TexInitVRAM(&render_tex, renderTextureWidth, renderTextureHeight, GPU_RGB8);
+    if (!C3D_TexInitVRAM(&render_tex, renderTextureWidth, renderTextureHeight, GPU_RGB8)) {
+        ctrModProfileStage("GPU init failed: VRAM texture allocation");
+        exit(EXIT_FAILURE);
+    }
 
     setTextureFilter(-1);
 }
@@ -776,6 +806,10 @@ void ctr_gfx_reinit()
 
     topRenderTarget = C3D_RenderTargetCreate(
             GSP_SCREEN_WIDTH, ctr_gfx.isWide ? GSP_SCREEN_HEIGHT_TOP_2X : GSP_SCREEN_HEIGHT_TOP, GPU_RB_RGB8, GPU_RB_DEPTH16);
+    if (!topRenderTarget) {
+        ctrModProfileStage("GPU init failed: top render target allocation");
+        exit(EXIT_FAILURE);
+    }
     C3D_RenderTargetSetOutput(topRenderTarget, GFX_TOP, GFX_LEFT, DISPLAY_TRANSFER_FLAGS);
 
     C3D_BindProgram(&program);
@@ -793,15 +827,19 @@ void ctr_gfx_reinit()
 void ctr_gfx_init()
 {
     sceneValid = false;
-    if(gspHasGpuRight())
-        gfxExit();
+    submittedFrames = 0;
+    ctrModProfileStage("GPU init: begin");
 
-    u8 is2DS;
+    u8 is2DS = 0;
     cfguInit();
     CFGU_GetModelNintendo2DS(&is2DS);
     APT_CheckNew3DS(&isN3DS);
 
-    gfxInitDefault();
+    // SDL owns the graphics service. Do not restart its event thread.
+    gfxSetScreenFormat(GFX_TOP, GSP_BGR8_OES);
+    gfxSetScreenFormat(GFX_BOTTOM, GSP_BGR8_OES);
+    gfxSet3D(false);
+    ctrModProfileStage("GPU init: retaining SDL graphics service");
 
 if (is2DS == 1) {
     gfxSetWide(true);
@@ -809,13 +847,29 @@ if (is2DS == 1) {
 } else
     ctr_gfx.isWide = false;
 
-    C3D_Init(C3D_DEFAULT_CMDBUF_SIZE);
+    char message[128];
+    snprintf(message, sizeof(message), "GPU init: new=%d 2DS flag=%u wide=%d GPU right=%d",
+        (int)isN3DS, (unsigned int)is2DS, (int)ctr_gfx.isWide, (int)gspHasGpuRight());
+    ctrModProfileStage(message);
+
+    if (!C3D_Init(C3D_DEFAULT_CMDBUF_SIZE)) {
+        ctrModProfileStage("GPU init failed: C3D_Init");
+        exit(EXIT_FAILURE);
+    }
 
     topRenderTarget = C3D_RenderTargetCreate(
             GSP_SCREEN_WIDTH, ctr_gfx.isWide ? GSP_SCREEN_HEIGHT_TOP_2X : GSP_SCREEN_HEIGHT_TOP, GPU_RB_RGB8, GPU_RB_DEPTH16);
+    if (!topRenderTarget) {
+        ctrModProfileStage("GPU init failed: top render target allocation");
+        exit(EXIT_FAILURE);
+    }
     C3D_RenderTargetSetOutput(topRenderTarget, GFX_TOP, GFX_LEFT, DISPLAY_TRANSFER_FLAGS);
 
     bottomRenderTarget = C3D_RenderTargetCreate(GSP_SCREEN_WIDTH, GSP_SCREEN_HEIGHT_BOTTOM, GPU_RB_RGB8, GPU_RB_DEPTH16);
+    if (!bottomRenderTarget) {
+        ctrModProfileStage("GPU init failed: bottom render target allocation");
+        exit(EXIT_FAILURE);
+    }
     C3D_RenderTargetSetOutput(bottomRenderTarget, GFX_BOTTOM, GFX_LEFT, DISPLAY_TRANSFER_FLAGS);
 
     vshader_dvlb = DVLB_ParseFile((uint32_t *)vshader_shbin, vshader_shbin_size);
@@ -866,6 +920,7 @@ if (is2DS == 1) {
     C2D_Prepare();
     overlayTextBuf = C2D_TextBufNew(4096);
     rendererInitialized = true;
+    ctrModProfileStage("GPU init: complete");
 }
 
 void ctr_gfx_exit()
@@ -873,8 +928,14 @@ void ctr_gfx_exit()
     if (!rendererInitialized) return;
     rendererInitialized = false;
     sceneValid = false;
-    ctrModProfileStage("GPU cleanup: waiting for submitted frame");
-    C3D_FrameSync();
+    // FrameSync waits for both VBlank counters, which may stop when HOME
+    // suspends the application. Deleting linked render targets drains the
+    // Citro3D command queue without requiring a new VBlank.
+    ctrModProfileStage("GPU cleanup: draining queue via render targets");
+    C3D_RenderTargetDelete(topRenderTarget);
+    topRenderTarget = nullptr;
+    C3D_RenderTargetDelete(bottomRenderTarget);
+    bottomRenderTarget = nullptr;
     ctrModProfileStage("GPU cleanup: releasing resources");
     shaderProgramFree(&program);
     DVLB_Free(vshader_dvlb);
@@ -887,6 +948,7 @@ void ctr_gfx_exit()
     C2D_TextBufDelete(overlayTextBuf);
     C2D_Fini();
 
+    ctrModProfileStage("GPU cleanup: C3D_Fini begins");
     C3D_Fini();
     romfsExit();
     cfguExit();

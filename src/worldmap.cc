@@ -1,3 +1,6 @@
+#ifdef __3DS__
+#include "platform/ctr/ctr_mod_profiles.h"
+#endif
 #include "worldmap.h"
 #include "worldmap_area_name.h"
 #ifdef __3DS__
@@ -2546,9 +2549,6 @@ static int wmAreaInit()
 
     configFree(&cfg);
 
-<<<<<<< Updated upstream
-    if (wmMaxAreaNum != CITY_COUNT) {
-=======
     int expectedCityCount = CITY_COUNT;
 #ifdef __3DS__
     if (ctrModProfileIsEtTu()) {
@@ -2559,7 +2559,6 @@ static int wmAreaInit()
     ctrModProfileStage(cityDiagnostic);
 #endif
     if (wmMaxAreaNum != expectedCityCount) {
->>>>>>> Stashed changes
         showMesageBox("\nwmAreaInit::Error loading Cities!");
         exit(1);
     }
@@ -3117,6 +3116,16 @@ static int wmWorldMapFunc(int a1)
         sharedFpsLimiter.mark();
 
         int keyCode = inputGetInput();
+
+#ifdef __3DS__
+        if (keyCode > kCtrWorldMapPanBase && keyCode <= kCtrWorldMapPanBase + 15) {
+            const unsigned mask = static_cast<unsigned>(keyCode - kCtrWorldMapPanBase);
+            const int dx = ((mask & 8u) != 0) - ((mask & 4u) != 0);
+            const int dy = ((mask & 2u) != 0) - ((mask & 1u) != 0);
+            if (dx || dy) wmInterfaceScroll(dx, dy, nullptr);
+            keyCode = -1;
+        }
+#endif
 
         // SFALL: WorldmapLoopHook.
         sfall_gl_scr_process_worldmap();

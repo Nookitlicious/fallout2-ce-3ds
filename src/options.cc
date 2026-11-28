@@ -22,11 +22,16 @@
 #include "window_manager.h"
 #ifdef __3DS__
 #include "platform/ctr/ctr_rectmap.h"
+#include "platform/ctr/ctr_controls_help.h"
 #endif
 
 namespace fallout {
 
+#ifdef __3DS__
+#define OPTIONS_WINDOW_BUTTONS_COUNT (12)
+#else
 #define OPTIONS_WINDOW_BUTTONS_COUNT (10)
+#endif
 
 typedef enum PauseWindowFrm {
     PAUSE_WINDOW_FRM_BACKGROUND,
@@ -141,6 +146,11 @@ int showOptions()
                 // PREFERENCES
                 doPreferences(false);
                 break;
+#ifdef __3DS__
+            case 505:
+                ctrControlsHelpMenu();
+                break;
+#endif
             case KEY_PLUS:
             case KEY_EQUAL:
                 brightnessIncrease();
@@ -226,10 +236,14 @@ static int optionsWindowInit()
 
     int optionsWindowX = (screenGetWidth() - _optionsFrmImages[OPTIONS_WINDOW_FRM_BACKGROUND].getWidth()) / 2;
     int optionsWindowY = (screenGetHeight() - _optionsFrmImages[OPTIONS_WINDOW_FRM_BACKGROUND].getHeight()) / 2 - 60;
+    int optionsHeight = _optionsFrmImages[0].getHeight();
+#ifdef __3DS__
+    optionsHeight += _optionsFrmImages[OPTIONS_WINDOW_FRM_BUTTON_ON].getHeight() + 3;
+#endif
     gOptionsWindow = windowCreate(optionsWindowX,
         optionsWindowY,
         _optionsFrmImages[0].getWidth(),
-        _optionsFrmImages[0].getHeight(),
+        optionsHeight,
         256,
         WINDOW_MODAL | WINDOW_DONT_MOVE_TOP);
 
@@ -259,6 +273,26 @@ static int optionsWindowInit()
     gOptionsWindowBuffer = windowGetBuffer(gOptionsWindow);
     memcpy(gOptionsWindowBuffer, _optionsFrmImages[OPTIONS_WINDOW_FRM_BACKGROUND].getData(), _optionsFrmImages[OPTIONS_WINDOW_FRM_BACKGROUND].getWidth() * _optionsFrmImages[OPTIONS_WINDOW_FRM_BACKGROUND].getHeight());
 
+#ifdef __3DS__
+    // Insert a full original row of background art rather than repeating a
+    // single scanline (which streaks the metal and side rails).
+    const int width = windowGetWidth(gOptionsWindow);
+    const int originalHeight = _optionsFrmImages[0].getHeight();
+    const int extra = optionsHeight - originalHeight;
+    const int insertY = std::max(0, originalHeight - extra - 12);
+    const auto* original = _optionsFrmImages[0].getData();
+    std::memcpy(gOptionsWindowBuffer, original, insertY*width);
+    for(int y=0;y<extra;++y) {
+        const int srcY=std::min(originalHeight-1,insertY+y);
+        std::memcpy(gOptionsWindowBuffer+(insertY+y)*width,original+srcY*width,width);
+    }
+    std::memcpy(gOptionsWindowBuffer+(insertY+extra)*width,original+insertY*width,(originalHeight-insertY)*width);
+    Rect optionsRect;
+    if (windowGetRect(gOptionsWindow, &optionsRect) == 0) {
+        setRectMapPos(DISPLAY_PAUSE, optionsRect.left, optionsRect.top,
+            width, windowGetHeight(gOptionsWindow), false);
+    }
+#endif
     fontSetCurrent(103);
 
     int textY = (_optionsFrmImages[OPTIONS_WINDOW_FRM_BUTTON_ON].getHeight() - fontGetLineHeight()) / 2 + 1;
@@ -267,7 +301,13 @@ static int optionsWindowInit()
     for (int index = 0; index < OPTIONS_WINDOW_BUTTONS_COUNT; index += 2) {
         char text[128];
 
-        const char* msg = getmsg(&gPreferencesMessageList, &gPreferencesMessageListItem, index / 2);
+        const char* msg;
+#ifdef __3DS__
+        if (index == 8) msg = "CONTROLS";
+        else if (index == 10) msg = getmsg(&gPreferencesMessageList, &gPreferencesMessageListItem, 4);
+        else
+#endif
+            msg = getmsg(&gPreferencesMessageList, &gPreferencesMessageListItem, index / 2);
         strcpy(text, msg);
 
         int textX = (_optionsFrmImages[OPTIONS_WINDOW_FRM_BUTTON_ON].getWidth() - fontGetStringWidth(text)) / 2;
@@ -286,7 +326,11 @@ static int optionsWindowInit()
             -1,
             -1,
             -1,
+#ifdef __3DS__
+            index == 8 ? 505 : index == 10 ? 504 : index / 2 + 500,
+#else
             index / 2 + 500,
+#endif
             _opbtns[index],
             _opbtns[index + 1],
             nullptr,

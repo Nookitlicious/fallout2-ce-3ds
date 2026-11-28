@@ -23,6 +23,7 @@
 #include "ctr_rectmap.h"
 #include "ctr_input.h"
 #include "ctr_metal_menu.h"
+#include "ctr_controls_help.h"
 #include "ctr_gfx.h"
 namespace fallout {
 namespace {
@@ -44,6 +45,11 @@ std::string profileConfig(const std::string& n) {
     return n == "nevada" && !regular(standard) ? path(n)+"/Nevada.cfg" : standard;
 }
 bool ready(const std::string& n) {
+    if (n == "sonora") {
+        return regular(path(n)+"/master.dat")
+            && regular(path(n)+"/critter.dat")
+            && regular(path(n)+"/fission.dat");
+    }
     return validName(n) && (regular(path(n)+"/master.dat") || regular(std::string(root)+"/master.dat")) && (regular(path(n)+"/critter.dat") || regular(std::string(root)+"/critter.dat")) && regular(profileConfig(n));
 }
 std::vector<std::string> scan() {
@@ -107,7 +113,17 @@ const char* ctrModProfileArchive(const char* name) {
     resolved = regular(path(active)+"/"+name) ? path(active)+"/"+name : std::string(root)+"/"+name;
     return resolved.c_str();
 }
+bool ctrModProfileIsEtTu() { return active == "ettu"; }
+
 void ctrModProfileLoadArchives() {
+    if (active == "sonora" || active == "ettu") {
+        for (const char* file : {"fission.dat", "sfall.dat", "ce.dat"}) {
+            if (regular(file)) {
+                int rc = dbOpen(file, 0, nullptr, 1);
+                ctrModProfileStage((std::string(rc == 0 ? "Opened " : "Failed to open ")+file).c_str());
+            }
+        }
+    }
     if (!ctrModProfileActive()) return;
     if (active == "nevada") {
         for (const char* file : {"sfall.dat", "mods/sfall_us.dat", "mods/INVENTORYFILTER.DAT"}) {
@@ -128,6 +144,19 @@ void ctrModProfileLoadArchives() {
         n=n.substr(first,n.find_last_not_of(" \t\r\n")-first+1);
         if(n[0]=='#'||n[0]==';') continue;
         if(n.size()<5 || n.size()>120 || n.find_first_not_of("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_- .")!=std::string::npos || n.find("..")!=std::string::npos) { ctrModProfileStage("Skipped unsupported archive order entry"); continue; }
+        if (active == "ettu") {
+            std::string folder = "mods/" + n;
+            struct stat st;
+            if (stat(folder.c_str(), &st) == 0 && S_ISDIR(st.st_mode)) {
+                if (dbOpen(folder.c_str(), 0, nullptr, 1) == 0) {
+                    ++count;
+                    ctrModProfileStage(("Mounted directory: " + folder).c_str());
+                } else {
+                    ctrModProfileStage(("Failed to mount directory: " + folder).c_str());
+                }
+                continue;
+            }
+        }
         std::string ext=n.substr(n.size()-4); for(char& c:ext) if(c>='A'&&c<='Z') c+=32;
         if(ext!=".dat") { ctrModProfileStage(("Skipped non-DAT archive order entry: " + n).c_str()); continue; }
         std::string file="mods/"+n;
@@ -177,13 +206,13 @@ int ctrModProfileMenu() {
         fontSetCurrent(101);
         panel(160,240,320,240,dark);
         size_t page=(selected/4)*4;
-        bool buttonsOk=true;
+        bool buttonsOk=true, openHelp=false;
         auto button=[&](int x,int y,int width,int height,int code,const std::string& text,bool highlight,bool lamp=true){
             if (metalMenu.button(win,x,y,width,height,width,height,code,text.c_str(),highlight,lamp)<0) buttonsOk=false;
         };
         for(size_t i=0;i<4 && page+i<profiles.size();++i) button(164,244+int(i)*41,312,39,2000+int(i),profiles[page+i]+(profiles[page+i]==active?"  [ACTIVE]":""),page+i==selected);
         button(164,410,72,29,2010,"PREV",false,false); button(240,410,72,29,2011,"NEXT",false,false);
-        button(316,410,160,29,2014,"ACTIVATE",false); button(164,443,154,33,2012,"PREFS",false); button(322,443,154,33,2013,"BACK",false);
+        button(316,410,160,29,2014,"ACTIVATE",false); button(164,443,102,33,2012,"PREFS",false,false); button(270,443,102,33,2015,"HELP (X)",false,false); button(376,443,100,33,2013,"BACK",false,false);
         windowRefresh(win);
         ctr_gfx_invalidate();
         if(!buttonsOk){windowDestroy(win);metalMenu.clear();break;}
@@ -199,6 +228,7 @@ int ctrModProfileMenu() {
             }
             if(key==KEY_ESCAPE || key==2013){done=true;break;}
             if(key==2012){result=1;done=true;break;}
+            if(key==2015 || (pressed & KEY_X)){openHelp=true;break;}
             if(key==KEY_ARROW_UP){if(selected>0)--selected;break;}
             if(key==KEY_ARROW_DOWN){if(selected+1<profiles.size())++selected;break;}
             if(key==2010 || key==KEY_ARROW_LEFT){selected=page>=4?page-4:0;break;}
@@ -208,6 +238,11 @@ int ctrModProfileMenu() {
         }
         windowDestroy(win);
         metalMenu.clear();
+        if(openHelp) {
+            ctrControlsHelpMenu();
+            previous=ctr_input.frame.kHeld;
+            if(_game_user_wants_to_quit==3){result=2;done=true;}
+        }
     }
     ctr_input_set_menu_quit(false);
     fontSetCurrent(oldFont); mouseHideCursor(); ctr_input.mode=oldMode; setActiveRectMap(DISPLAY_MAIN); return result;

@@ -55,6 +55,10 @@ bool ctr_input_edit_text(const char* hintText, char* text, int maxLength, bool a
 
 bool ctr_input_key_pressed(void);
 
+// Read-only help menu status and release-state synchronization.
+void ctr_input_get_new_controls(bool* model, bool* shoulder, bool* stick);
+void ctr_input_sync_help_buttons();
+bool ctr_input_take_help_touch(int* x, int* y);
 void ctr_input_init(void);
 void ctr_input_exit(void);
 

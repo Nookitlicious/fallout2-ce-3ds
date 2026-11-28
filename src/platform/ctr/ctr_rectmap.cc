@@ -144,6 +144,8 @@ void setRectMapPos(rectMap_e rectmap, float x, float y, float w, float h, bool i
     rectMaps[rectmap][0]->dst_h = newHeight;
 }
 
+float getRectMapScaleFactor() { return scaleFactor; }
+
 int setRectMapScaled(bool scaled_rect_top, float rawScaleFactor)
 {
     if (rawScaleFactor != -1.0) {
@@ -460,6 +462,7 @@ void ctr_rectmap_init()
     addRectMap(DISPLAY_LOADSAVE_BACK,     1,  20, 440, 290,  20,   0,   0, 320,  40); // frame bottom
 
     addRectMap(DISPLAY_MODS, 0, 160, 240, 320, 240, 0, 0, 320, 240);
+    addRectMap(DISPLAY_CONTROLS_HELP, 0, 160, 240, 320, 240, 0, 0, 320, 240);
     addRectMap(DISPLAY_OPTIONS,           0,   0,   0, 640, 480,   0,   0, 320, 240); // preferences TODO
 
     addRectMap(DISPLAY_ENDGAME,           0,   0,   0, 640, 480,   0,   0, 320, 240); // TODO

@@ -8,6 +8,7 @@
 #include "ctr_gfx.h"
 #include "ctr_rectmap.h"
 #include "ctr_main_menu_layout.h"
+#include "ctr_new_controls.h"
 //#include "ctr_sys.h"
 
 #include "platform_compat.h"
@@ -55,6 +56,37 @@ static bool scaled_rect_top = false;
 static int cursorDivisor = 10;
 static float previousSliderState = -1.0f;
 static float manualScaleFactor = 0.0f;
+static bool newModel = false;
+static int newShoulderZoom = 1;
+static int newCStickPan = 1;
+
+void ctr_input_get_new_controls(bool* model, bool* shoulder, bool* stick) {
+    *model = newModel; *shoulder = newModel && newShoulderZoom != 0;
+    *stick = newModel && newCStickPan != 0;
+}
+static int helpTouchX = -1, helpTouchY = -1;
+void ctr_input_sync_help_buttons() {
+    oldpad = ctr_input.frame.kHeld;
+    helpTouchX = helpTouchY = -1;
+}
+bool ctr_input_take_help_touch(int* x, int* y) {
+    if (helpTouchX < 0 || helpTouchY < 0) return false;
+    *x = helpTouchX; *y = helpTouchY;
+    helpTouchX = helpTouchY = -1;
+    return true;
+}
+
+static bool adaptedGameplay()
+{
+    return isGameplayRectMap(ctr_rectMap.active);
+}
+
+static bool cStickPansHere()
+{
+    return ctr_new_controls::stickPans(newModel, newCStickPan != 0,
+        adaptedGameplay() || ctr_rectMap.active == DISPLAY_WORLDMAP
+        || (ctr_rectMap.active == DISPLAY_FULL && isGameplayRectMap(ctr_rectMap.main)));
+}
 
 int offsetX = 0;
 int offsetY = 0;
@@ -194,6 +226,10 @@ void ctr_input_process(void)
 
         switch (e.type) {
         case SDL_FINGERDOWN:
+            if (ctr_rectMap.active == DISPLAY_CONTROLS_HELP) {
+                helpTouchX = std::clamp(static_cast<int>(e.tfinger.x * 320), 0, 319);
+                helpTouchY = std::clamp(static_cast<int>(e.tfinger.y * 240), 0, 239);
+            }
             touch_handle_start(&(e.tfinger));
             break;
         case SDL_FINGERMOTION:
@@ -249,7 +285,7 @@ void input_frame_touch(void)
     return;
 }
 
-void input_frame_axis(int *delta_x, int *delta_y)
+void input_frame_axis(int *delta_x, int *delta_y, bool independentPan)
 {
     int x, y;
     int moveX;
@@ -266,7 +302,13 @@ void input_frame_axis(int *delta_x, int *delta_y)
         circlePosition cstick;
         hidCstickRead(&cstick);
 
-        // Moderate Circle Pad speed for accurate O3DS cursor targeting; C-stick unchanged.
+        // In map-panning mode the C-stick is consumed only by the pan handler.
+        // All other screens retain the original cursor/character-scroll behavior.
+        if (cStickPansHere()) {
+            cstick.dx = 0;
+            cstick.dy = 0;
+        }
+        // Moderate Circle Pad speed for accurate O3DS cursor targeting.
         moveX = (int)circle.dx / cursorDivisor + (int)cstick.dx / 15;
         moveY = -((int)circle.dy / cursorDivisor + (int)cstick.dy / 15);
 
@@ -280,7 +322,12 @@ void input_frame_axis(int *delta_x, int *delta_y)
         if ((ctr_rectMap.active == DISPLAY_FIELD) || (ctr_rectMap.active == DISPLAY_GUI)) {
             if ((moveX != 0) || (moveY != 0)) {
                 mouseGetPosition(&x, &y);
-                if (y > 380) {
+                if (independentPan) {
+                    // Apply raw Circle Pad movement once; the pan handler will
+                    // keep the cursor in its current map/interface region.
+                    *delta_x += moveX;
+                    *delta_y += moveY;
+                } else if (y > 380) {
                     ctr_input_center_mouse();
                 } else if (y + moveY >= 380) {
                     mouseHideCursor();
@@ -300,7 +347,21 @@ void input_frame_axis(int *delta_x, int *delta_y)
     }
 }
 
-void input_frame_buttons(int *delta_x, int *delta_y, int *buttons)
+static ctr_new_controls::Directions readPanDirections()
+{
+    ctr_new_controls::Directions stick = {false, false, false, false};
+    if (cStickPansHere()) {
+        circlePosition cstick;
+        hidCstickRead(&cstick);
+        stick = ctr_new_controls::panDirections(true,
+            KEY_HELD(KEY_SELECT) || KEY_HELD(KEY_START), cstick.dx, cstick.dy);
+    }
+    return ctr_new_controls::combine({KEY_HELD(KEY_DUP) != 0,
+        KEY_HELD(KEY_DDOWN) != 0, KEY_HELD(KEY_DLEFT) != 0, KEY_HELD(KEY_DRIGHT) != 0}, stick);
+}
+
+void input_frame_buttons(int *delta_x, int *delta_y, int *buttons,
+    ctr_new_controls::Directions pan, bool independentPan)
 {
 #ifdef _DEBUG_OVERLAY
     if (KEY_HELD(KEY_START) && KEY_PRESS(KEY_DUP)) {
@@ -326,7 +387,20 @@ void input_frame_buttons(int *delta_x, int *delta_y, int *buttons)
         key_combi_flags |= FLAG_SELECT_DLEFT;
     }
 #endif
+    const bool shoulderZoomHere = ctr_new_controls::shoulderZoom(newModel, newShoulderZoom != 0, adaptedGameplay());
+    if (shoulderZoomHere && key_combi_flags == FLAG_NONE && !KEY_HELD(KEY_SELECT) && !KEY_HELD(KEY_START)) {
+        const bool out = KEY_PRESS(KEY_ZL);
+        const bool in = KEY_PRESS(KEY_ZR);
+        if ((out || in) && !((KEY_HELD(KEY_ZL)) && (KEY_HELD(KEY_ZR)))) {
+            manualScaleFactor = ctr_new_controls::zoomStep(getRectMapScaleFactor(), out, in);
+            if (setRectMapScaled(ctr_rectMap.active == DISPLAY_GUI, manualScaleFactor) == 0) {
+                ctr_input_center_mouse();
+                ctr_gfx_invalidate();
+            }
+        }
+    }
     if (isGameplayRectMap(ctr_rectMap.main) && KEY_HELD(KEY_SELECT) && KEY_PRESS(KEY_DDOWN)) {
+        if (shoulderZoomHere) manualScaleFactor = getRectMapScaleFactor();
         manualScaleFactor -= 0.2f; // zoom out
         if (manualScaleFactor < 0.0f) {
             manualScaleFactor = 0.0f;
@@ -335,6 +409,7 @@ void input_frame_buttons(int *delta_x, int *delta_y, int *buttons)
     }
 
     if (isGameplayRectMap(ctr_rectMap.main) && KEY_HELD(KEY_SELECT) && KEY_PRESS(KEY_DUP)) {
+        if (shoulderZoomHere) manualScaleFactor = getRectMapScaleFactor();
         manualScaleFactor += 0.2f; // zoom in
         if (manualScaleFactor > 1.0f) {
             manualScaleFactor = 1.0f;
@@ -369,6 +444,10 @@ void input_frame_buttons(int *delta_x, int *delta_y, int *buttons)
     }
 
     if (key_combi_flags == FLAG_NONE) {
+        const bool panUp = pan.up;
+        const bool panDown = pan.down;
+        const bool panLeft = pan.left;
+        const bool panRight = pan.right;
         if (ctr_rectMap.active == DISPLAY_DIALOG_REVIEW) {
             if (KEY_PRESS(KEY_DUP)) enqueueInputEvent(KEY_ARROW_UP);
             if (KEY_PRESS(KEY_DDOWN)) enqueueInputEvent(KEY_ARROW_DOWN);
@@ -413,13 +492,21 @@ void input_frame_buttons(int *delta_x, int *delta_y, int *buttons)
             if (KEY_PRESS(KEY_Y)) enqueueInputEvent(KEY_UPPERCASE_T);
             static u32 previousDirection = 0;
             static unsigned int lastPan = 0;
-            const u32 direction = ctr_input.frame.kHeld & (KEY_DUP | KEY_DDOWN | KEY_DLEFT | KEY_DRIGHT);
+            const u32 direction = (panUp ? static_cast<u32>(KEY_DUP) : 0u)
+                | (panDown ? static_cast<u32>(KEY_DDOWN) : 0u)
+                | (panLeft ? static_cast<u32>(KEY_DLEFT) : 0u)
+                | (panRight ? static_cast<u32>(KEY_DRIGHT) : 0u);
             const unsigned int now = getTicks();
             if (direction && (direction != previousDirection || now - lastPan >= 100u)) {
-                if (direction & KEY_DUP) enqueueInputEvent(KEY_ARROW_UP);
-                if (direction & KEY_DDOWN) enqueueInputEvent(KEY_ARROW_DOWN);
-                if (direction & KEY_DLEFT) enqueueInputEvent(KEY_ARROW_LEFT);
-                if (direction & KEY_DRIGHT) enqueueInputEvent(KEY_ARROW_RIGHT);
+                if (independentPan) {
+                    // One event per repeat, including diagonals. No list-focus events.
+                    enqueueInputEvent(kCtrWorldMapPanBase + ctr_new_controls::panMask(pan));
+                } else {
+                    if (direction & KEY_DUP) enqueueInputEvent(KEY_ARROW_UP);
+                    if (direction & KEY_DDOWN) enqueueInputEvent(KEY_ARROW_DOWN);
+                    if (direction & KEY_DLEFT) enqueueInputEvent(KEY_ARROW_LEFT);
+                    if (direction & KEY_DRIGHT) enqueueInputEvent(KEY_ARROW_RIGHT);
+                }
                 lastPan = now;
             }
             previousDirection = direction;
@@ -449,7 +536,7 @@ void input_frame_buttons(int *delta_x, int *delta_y, int *buttons)
             }
         }
 
-        if ((KEY_PRESS(KEY_A)) || (KEY_PRESS(KEY_ZL))) {
+        if ((KEY_PRESS(KEY_A)) || (!shoulderZoomHere && (KEY_PRESS(KEY_ZL)))) {
             if ((ctr_rectMap.active == DISPLAY_FIELD) || (ctr_rectMap.active == DISPLAY_GUI)) {
                 if (ctr_rectMap.active == DISPLAY_FIELD)
                     setActiveRectMap(DISPLAY_GUI);
@@ -466,11 +553,49 @@ void input_frame_buttons(int *delta_x, int *delta_y, int *buttons)
             // currentInput = ((currentInput + 1) % (INPUT_LAST));
         }
 
+        if (independentPan && cStickPansHere()) {
+            const int dx = ctr_new_controls::axisDirection(panLeft, panRight);
+            const int dy = ctr_new_controls::axisDirection(panUp, panDown);
+            if (adaptedGameplay()) {
+                auto* view = rectMaps[DISPLAY_FIELD][0];
+                const auto px = ctr_new_controls::panAxis(static_cast<int>(view->src_x),
+                    static_cast<int>(offsetX_field_scaled_max), dx);
+                const auto py = ctr_new_controls::panAxis(static_cast<int>(view->src_y),
+                    static_cast<int>(offsetY_field_scaled_max), dy);
+                offsetX_field = view->src_x = px.offset;
+                offsetY_field = view->src_y = py.offset;
+                // One combined call: mapScroll throttles consecutive calls, so
+                // a vertical call used to starve the horizontal one.
+                if (px.scroll || py.scroll) mapScroll(px.scroll, py.scroll);
+                int x, y;
+                mouseGetPosition(&x, &y);
+                if (ctr_rectMap.active == DISPLAY_GUI && y >= 380) {
+                    // Panning moves only the map, never the interface cursor.
+                    *delta_x = ctr_new_controls::cursorDelta(x, *delta_x, 0, 1, screenGetWidth()-2);
+                    *delta_y = ctr_new_controls::cursorDelta(y, *delta_y, 0, 380, screenGetHeight()-1);
+                } else {
+                    // Keep the same position on the LCD when the viewport moves.
+                    // Stay inside the map, away from the engine edge-scroll trigger.
+                    const int left = std::max(1, px.offset);
+                    const int right = std::min(screenGetWidth()-2, px.offset + static_cast<int>(view->src_w)-1);
+                    const int top = std::max(1, py.offset);
+                    const int bottom = std::min(379, std::min(screenGetHeight()-2, py.offset + static_cast<int>(view->src_h)-1));
+                    *delta_x = ctr_new_controls::cursorDelta(x, *delta_x, px.cursorShift, left, right);
+                    *delta_y = ctr_new_controls::cursorDelta(y, *delta_y, py.cursorShift, top, bottom);
+                }
+                if (px.cursorShift || py.cursorShift) ctr_gfx_invalidate();
+            } else if (ctr_rectMap.active == DISPLAY_FULL && (dx || dy)) {
+                mapScroll(dx, dy);
+            }
+            oldpad = ctr_input.frame.kHeld;
+            return;
+        }
+
         if ((ctr_rectMap.active == DISPLAY_FIELD) || (ctr_rectMap.active == DISPLAY_GUI)) {
             offsetX_field = rectMaps[DISPLAY_FIELD][0]->src_x;
             offsetY_field = rectMaps[DISPLAY_FIELD][0]->src_y;
 
-            if (KEY_HELD(KEY_DUP)) {
+            if (panUp) {
                 if (offsetY_field > 0) {
                     int deltaY = (offsetY_field >= 20) ? 20 : offsetY_field;
                     offsetY_field -= deltaY;
@@ -487,7 +612,7 @@ void input_frame_buttons(int *delta_x, int *delta_y, int *buttons)
                     mapScroll(0, -1);
                 }
             }
-            if (KEY_HELD(KEY_DDOWN)) {
+            if (panDown) {
                 if (offsetY_field < offsetY_field_scaled_max) {
                     int deltaY = (offsetY_field_scaled_max - offsetY_field >= 20) ?
                                  20 : offsetY_field_scaled_max - offsetY_field;
@@ -505,7 +630,7 @@ void input_frame_buttons(int *delta_x, int *delta_y, int *buttons)
                     mapScroll(0, 1);
                 }
             }
-            if (KEY_HELD(KEY_DLEFT)) {
+            if (panLeft) {
                 if (offsetX_field > 0) {
                     int deltaX = (offsetX_field >= 20) ? 20 : offsetX_field;
                     offsetX_field -= deltaX;
@@ -522,7 +647,7 @@ void input_frame_buttons(int *delta_x, int *delta_y, int *buttons)
                     mapScroll(-1, 0);
                 }
             }
-            if (KEY_HELD(KEY_DRIGHT)) {
+            if (panRight) {
                 if (offsetX_field < offsetX_field_scaled_max) {
                     int deltaX = (offsetX_field_scaled_max - offsetX_field >= 20) ?
                                  20 : offsetX_field_scaled_max - offsetX_field;
@@ -543,18 +668,18 @@ void input_frame_buttons(int *delta_x, int *delta_y, int *buttons)
             rectMaps[DISPLAY_FIELD][0]->src_x = offsetX_field;
             rectMaps[DISPLAY_FIELD][0]->src_y = offsetY_field;
         } else {
-            if (KEY_HELD(KEY_DUP)) {
+            if (panUp) {
                 mapScroll(0, -1);
 //                *buttons |= KEY_ARROW_UP;
             }
-            if (KEY_HELD(KEY_DDOWN)) {
+            if (panDown) {
                 mapScroll(0, 1);
 //                *buttons |= KEY_ARROW_DOWN;
             }
-            if (KEY_HELD(KEY_DLEFT)) {
+            if (panLeft) {
                 mapScroll(-1, 0);
             }
-            if (KEY_HELD(KEY_DRIGHT)) {
+            if (panRight) {
                 mapScroll(1, 0);
             }
         }
@@ -564,13 +689,23 @@ void input_frame_buttons(int *delta_x, int *delta_y, int *buttons)
 
 int ctr_input_frame(void)
 {
+    if (ctr_rectMap.active == DISPLAY_CONTROLS_HELP) {
+        oldpad = ctr_input.frame.kHeld;
+        return 1;
+    }
+    if (ctr_rectMap.active == DISPLAY_PAUSE && KEY_PRESS(KEY_X)) {
+        enqueueInputEvent(505);
+    }
     int delta_x = 0;
     int delta_y = 0;
     int buttons = 0;
 
     input_frame_touch();
-    input_frame_axis(&delta_x, &delta_y);
-    input_frame_buttons(&delta_x, &delta_y, &buttons);
+    const auto pan = readPanDirections();
+    const bool independentPan = cStickPansHere() && ctr_new_controls::any(pan)
+        && key_combi_flags == FLAG_NONE && !KEY_HELD(KEY_SELECT) && !KEY_HELD(KEY_START);
+    input_frame_axis(&delta_x, &delta_y, independentPan);
+    input_frame_buttons(&delta_x, &delta_y, &buttons, pan, independentPan);
 
     if (ctr_rectMap.active == DISPLAY_WORLDMAP && (delta_x || delta_y)) {
         // Let the Circle Pad reach both the map and its control panel, without
@@ -598,7 +733,9 @@ int ctr_input_frame(void)
         if (y+delta_y < top) delta_y = top-y;
         if (y+delta_y >= top+410) delta_y = top+409-y;
     }
-    if ((delta_x != 0) || (delta_y != 0) || (buttons != 0)) {
+    if (independentPan || (delta_x != 0) || (delta_y != 0) || (buttons != 0)) {
+        // Consume hardware pan frames even if the cursor is stationary; don't
+        // let SDL's relative-mouse fallback add another cursor movement.
         _mouse_simulate_input(delta_x, delta_y, buttons);
         return 1;
     }
@@ -744,6 +881,15 @@ bool ctr_input_edit_text(const char* hintText, char* text, int maxLength, bool a
 
 void ctr_input_init(void)
 {
+    newModel = false;
+    bool detectedNew = false;
+    if (R_SUCCEEDED(APT_CheckNew3DS(&detectedNew))) newModel = detectedNew;
+    newShoulderZoom = 1;
+    newCStickPan = 1;
+    if (newModel) {
+        configGetInt(&gSfallConfig, SFALL_CONFIG_MISC_KEY, "N3DSShoulderZoom", &newShoulderZoom);
+        configGetInt(&gSfallConfig, SFALL_CONFIG_MISC_KEY, "N3DSCStickPan", &newCStickPan);
+    }
     cursorDivisor = 10;
     configGetInt(&gSfallConfig, SFALL_CONFIG_MISC_KEY, "O3DSCursorDivisor", &cursorDivisor);
     if (cursorDivisor < 4) cursorDivisor = 4;
